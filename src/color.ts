@@ -169,3 +169,8 @@ export function contrastRatio(hex: string, bg: string): number {
 export function labelColor(hex: string): string {
   return contrastRatio(hex, '#000000') >= contrastRatio(hex, '#ffffff') ? '#ffffff' : '#000000';
 }
+
+/** True if `hex` is a light background — i.e. a map color the page should mirror. */
+export function isLightBackground(hex: string): boolean {
+  return (wcagLuminance(hex) ?? 0) > 0.5;
+}

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { catHex, contrastRatio, labelColor, paletteScore, simulate, type Sim } from './color';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { catHex, contrastRatio, isLightBackground, labelColor, paletteScore, simulate, type Sim } from './color';
 import { optimizePalette } from './optimize';
 import { Scatter } from './components/Scatter';
 import type { Entry, State } from './types';
@@ -221,6 +221,17 @@ export function App() {
     );
   };
 
+  // Mirror the map background under test onto the whole page. When it's light
+  // (e.g. white), flip the UI chrome to a light surface so palette colors are
+  // judged in the same context a real map gives them — a dark page would skew
+  // how the colors read. useLayoutEffect avoids a dark→light flash on load
+  // (the default background is white).
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--page-bg', background);
+    root.classList.toggle('light-map', isLightBackground(background));
+  }, [background]);
+
   useEffect(() => {
     const enc = encode(state);
     try {
@@ -354,8 +365,22 @@ export function App() {
     setLoadOpen(false);
   };
 
-  const humanPts = sims.map((s, i) => ({ x: s.human.a, y: s.human.b, fill: s.hex, hex: s.hex, label: String(i + 1) }));
-  const catPts = sims.map((s, i) => ({ x: s.catXY.x, y: s.catXY.y, fill: s.catHex, hex: s.catHex, label: String(i + 1) }));
+  const humanPts = sims.map((s, i) => ({
+    x: s.human.a,
+    y: s.human.b,
+    fill: s.hex,
+    humanHex: s.hex,
+    catHex: s.catHex,
+    label: String(i + 1),
+  }));
+  const catPts = sims.map((s, i) => ({
+    x: s.catXY.x,
+    y: s.catXY.y,
+    fill: s.catHex,
+    humanHex: s.hex,
+    catHex: s.catHex,
+    label: String(i + 1),
+  }));
 
   return (
     <div class="app">
