@@ -365,8 +365,22 @@ export function App() {
     setLoadOpen(false);
   };
 
-  const humanPts = sims.map((s, i) => ({ x: s.human.a, y: s.human.b, fill: s.hex, hex: s.hex, label: String(i + 1) }));
-  const catPts = sims.map((s, i) => ({ x: s.catXY.x, y: s.catXY.y, fill: s.catHex, hex: s.catHex, label: String(i + 1) }));
+  const humanPts = sims.map((s, i) => ({
+    x: s.human.a,
+    y: s.human.b,
+    fill: s.hex,
+    humanHex: s.hex,
+    catHex: s.catHex,
+    label: String(i + 1),
+  }));
+  const catPts = sims.map((s, i) => ({
+    x: s.catXY.x,
+    y: s.catXY.y,
+    fill: s.catHex,
+    humanHex: s.hex,
+    catHex: s.catHex,
+    label: String(i + 1),
+  }));
 
   return (
     <div class="app">

@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
 import { labelColor } from '../color';
 
-export type Pt = { x: number; y: number; fill: string; label: string; hex: string };
+export type Pt = { x: number; y: number; fill: string; label: string; humanHex: string; catHex: string };
 
 /** Closest pair by Euclidean distance in the plotted coordinates. */
 function closestPair(points: Pt[]): { i: number; j: number; d: number } | null {
@@ -136,22 +136,43 @@ export function Scatter({
 }
 
 function Tip({ p, x, y, bounds }: { p: Pt; x: number; y: number; bounds: number }) {
-  const tw = 104;
-  const th = 22;
-  const pad = 6;
-  const sw = 12;
+  const tw = 116;
+  const th = 56;
+  const pad = 7;
+  const sw = 11;
+  const keyX = pad + sw + 6;
+  const hexX = keyX + 34;
   let tx = x + 9;
   let ty = y - th - 4;
   if (tx + tw > bounds) tx = x - tw - 9;
   if (tx < 2) tx = 2;
   if (ty < 2) ty = y + 9;
+  // Both fields are shown for every dot, so hovering either plot tells you the
+  // human color and its simulated cat counterpart at once.
+  const rows = [
+    { key: 'human', hex: p.humanHex },
+    { key: 'cat', hex: p.catHex },
+  ];
   return (
     <g pointer-events="none">
       <rect x={tx} y={ty} width={tw} height={th} rx="5" class="tip-bg" />
-      <rect x={tx + pad} y={ty + (th - sw) / 2} width={sw} height={sw} rx="2" fill={p.fill} stroke="#0007" />
-      <text x={tx + pad + sw + 6} y={ty + th / 2} class="tip-text" dominant-baseline="central">
-        {p.label} · {p.hex}
+      <text x={tx + pad} y={ty + pad + 8} class="tip-head">
+        line {p.label}
       </text>
+      {rows.map((r, i) => {
+        const cy = ty + pad + 24 + i * 16;
+        return (
+          <g key={r.key}>
+            <rect x={tx + pad} y={cy - sw / 2} width={sw} height={sw} rx="2" fill={r.hex} stroke="#0007" />
+            <text x={tx + keyX} y={cy} class="tip-key" dominant-baseline="central">
+              {r.key}
+            </text>
+            <text x={tx + hexX} y={cy} class="tip-text" dominant-baseline="central">
+              {r.hex}
+            </text>
+          </g>
+        );
+      })}
     </g>
   );
 }

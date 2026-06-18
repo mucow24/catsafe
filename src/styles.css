@@ -360,6 +360,14 @@ input[type="color"] {
   font: 600 9.5px ui-monospace, Menlo, Consolas, monospace;
   fill: var(--text);
 }
+.tip-head {
+  font: 700 9px ui-sans-serif, system-ui, sans-serif;
+  fill: var(--muted);
+}
+.tip-key {
+  font: 600 9.5px ui-monospace, Menlo, Consolas, monospace;
+  fill: var(--muted);
+}
 
 .export-sep {
   width: 1px;
