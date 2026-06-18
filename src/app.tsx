@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { catHex, contrastRatio, labelColor, paletteScore, simulate, type Sim } from './color';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { catHex, contrastRatio, isLightBackground, labelColor, paletteScore, simulate, type Sim } from './color';
 import { optimizePalette } from './optimize';
 import { Scatter } from './components/Scatter';
 import type { Entry, State } from './types';
@@ -220,6 +220,17 @@ export function App() {
       h.future.length ? { present: h.future[0], past: [...h.past, h.present], future: h.future.slice(1) } : h,
     );
   };
+
+  // Mirror the map background under test onto the whole page. When it's light
+  // (e.g. white), flip the UI chrome to a light surface so palette colors are
+  // judged in the same context a real map gives them — a dark page would skew
+  // how the colors read. useLayoutEffect avoids a dark→light flash on load
+  // (the default background is white).
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--page-bg', background);
+    root.classList.toggle('light-map', isLightBackground(background));
+  }, [background]);
 
   useEffect(() => {
     const enc = encode(state);

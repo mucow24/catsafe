@@ -13,6 +13,50 @@
   color-scheme: dark;
 }
 
+/* When the map background under test is light (e.g. white), mirror it onto the
+   whole page and flip the chrome to dark-on-light, so palette colors are seen in
+   the same context a real map gives them. --page-bg carries the exact tested
+   color (set from app.tsx); panels share it so swatches sit directly on it. */
+:root.light-map {
+  --bg: var(--page-bg, #ffffff);
+  --panel: var(--page-bg, #ffffff);
+  --panel-2: #eef1f5;
+  --line: #d3d9e0;
+  --text: #14171c;
+  --muted: #5a6472;
+  --accent: #b46a00;
+  --accent-2: #1f7ad6;
+  --warn-bg: #fff3d2;
+  --warn-text: #6b4f00;
+  color-scheme: light;
+}
+/* Keep the status indicators legible on a light surface (their dark-theme
+   values are pale-on-dark and would wash out on white). */
+:root.light-map .contrast.bad,
+:root.light-map .modal-err {
+  color: #c62828;
+}
+:root.light-map .copy-hex.done {
+  border-color: #2e7d4f;
+  color: #2e7d4f;
+}
+/* Scatter plots: light plot area, plus axes/link/tooltip retuned for it. The
+   dark-theme defaults are pale strokes on near-black and invert poorly. The
+   tooltip flips to light-on-dark-text since .tip-text rides --text (now dark). */
+:root.light-map .scatter-bg {
+  fill: #f2f4f7;
+}
+:root.light-map .axis {
+  stroke: #c2c9d2;
+}
+:root.light-map .closest-link {
+  stroke: #6b7480;
+}
+:root.light-map .tip-bg {
+  fill: #ffffff;
+  stroke: var(--line);
+}
+
 * {
   box-sizing: border-box;
 }
