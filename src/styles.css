@@ -202,7 +202,7 @@ input[type="color"] {
 }
 .row {
   display: grid;
-  grid-template-columns: 34px 1fr auto;
+  grid-template-columns: 44px 1fr auto;
   align-items: center;
   gap: 14px;
   padding: 10px;
@@ -217,11 +217,22 @@ input[type="color"] {
   border-color: #e0564f;
   box-shadow: 0 0 0 1px #e0564f55;
 }
-.line-no {
+.line-code {
+  width: 100%;
+  box-sizing: border-box;
   text-align: center;
+  text-transform: uppercase;
   font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  letter-spacing: 0.5px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 4px;
+}
+.line-code:focus {
+  outline: none;
+  border-color: var(--accent-2);
 }
 
 .swatches {
@@ -444,7 +455,7 @@ footer {
     grid-template-columns: 1fr;
   }
   .row {
-    grid-template-columns: 24px 1fr;
+    grid-template-columns: 44px 1fr;
   }
   .row-controls {
     grid-column: 1 / -1;

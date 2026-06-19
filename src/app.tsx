@@ -17,20 +17,22 @@ function normHex(raw: string): string | null {
 }
 
 /** Parse a pasted palette: a catsafe JSON export, a JSON array, or loose hex tokens. */
-function parsePalette(text: string): Array<{ color: string; locked: boolean }> {
+function parsePalette(text: string): Array<{ color: string; locked: boolean; code?: string }> {
   const t = text.trim();
   if (!t) return [];
   try {
     const j = JSON.parse(t);
     if (Array.isArray(j)) {
-      const out: Array<{ color: string; locked: boolean }> = [];
+      const out: Array<{ color: string; locked: boolean; code?: string }> = [];
       for (const x of j) {
         if (typeof x === 'string') {
           const h = normHex(x);
           if (h) out.push({ color: h, locked: false });
         } else if (x && typeof x === 'object') {
           const h = normHex(String(x.human ?? x.color ?? x.hex ?? ''));
-          if (h) out.push({ color: h, locked: !!x.locked });
+          // New exports carry the service code in "line"; ignore the legacy numeric form.
+          const rawCode = typeof x.code === 'string' ? x.code : typeof x.line === 'string' ? x.line : '';
+          if (h) out.push({ color: h, locked: !!x.locked, code: rawCode || undefined });
         }
       }
       if (out.length) return out;
@@ -50,10 +52,40 @@ function parsePalette(text: string): Array<{ color: string; locked: boolean }> {
 const uid = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 
-const mk = (color: string, locked = false, edited = false): Entry => ({ id: uid(), color, locked, edited });
+/** Spreadsheet-style column label: 0→A, 25→Z, 26→AA, 27→AB, … */
+function colLabel(n: number): string {
+  let s = '';
+  for (let x = n + 1; x > 0; x = Math.floor((x - 1) / 26)) {
+    s = String.fromCharCode(65 + ((x - 1) % 26)) + s;
+  }
+  return s;
+}
+
+/** Normalize a typed service code: uppercase, alphanumeric only, max 2 chars. */
+const normCode = (raw: string) => raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 2);
+
+/** First default code (A, B, C, …) not already taken, so adds fill any gaps. */
+function nextCode(entries: Entry[]): string {
+  const used = new Set(entries.map((e) => e.code));
+  for (let i = 0; ; i++) {
+    const c = colLabel(i);
+    if (!used.has(c)) return c;
+  }
+}
+
+/** Display/export identifier: the entry's code, falling back to its positional label. */
+const codeOf = (entry: Entry, index: number) => entry.code || colLabel(index);
+
+const mk = (color: string, locked = false, edited = false, code = ''): Entry => ({
+  id: uid(),
+  code,
+  color,
+  locked,
+  edited,
+});
 
 const DEFAULT_STATE: State = {
-  entries: [mk('#c1272d'), mk('#0061a8'), mk('#1f9e57'), mk('#e58a00'), mk('#6a3d9a')],
+  entries: ['#c1272d', '#0061a8', '#1f9e57', '#e58a00', '#6a3d9a'].map((c, i) => mk(c, false, false, colLabel(i))),
   catWeight: 0.5,
   background: '#ffffff',
   minContrast: 3,
@@ -73,16 +105,22 @@ function decode(str: string): State | null {
   }
   return null;
 }
+/** Backfill service codes on states saved before codes existed. A deliberately
+ *  cleared code ("") is a string and is preserved; only a missing field is filled. */
+function ensureCodes(s: State): State {
+  if (s.entries.every((e) => typeof e.code === 'string')) return s;
+  return { ...s, entries: s.entries.map((e, i) => (typeof e.code === 'string' ? e : { ...e, code: colLabel(i) })) };
+}
 function loadInitial(): State {
   if (location.hash.startsWith('#p=')) {
     const s = decode(location.hash.slice(3));
-    if (s) return s;
+    if (s) return ensureCodes(s);
   }
   try {
     const raw = localStorage.getItem('catsafe');
     if (raw) {
       const s = decode(raw);
-      if (s) return s;
+      if (s) return ensureCodes(s);
     }
   } catch {
     /* ignore */
@@ -99,10 +137,11 @@ function EntryRow(props: {
   minContrast: number;
   isWorst: boolean;
   onEdit: (id: string, color: string, coalesceKey?: string) => void;
+  onCode: (id: string, code: string) => void;
   onToggleLock: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
-  const { entry, index, bg, minContrast, isWorst, onEdit, onToggleLock, onRemove } = props;
+  const { entry, index, bg, minContrast, isWorst, onEdit, onCode, onToggleLock, onRemove } = props;
   const cat = catHex(entry.color);
   const cr = contrastRatio(entry.color, bg);
   const lowContrast = cr < minContrast;
@@ -122,7 +161,15 @@ function EntryRow(props: {
 
   return (
     <div class={`row${isWorst ? ' worst' : ''}${entry.locked ? ' locked' : ''}`}>
-      <div class="line-no">{index + 1}</div>
+      <input
+        class="line-code"
+        type="text"
+        spellcheck={false}
+        maxLength={2}
+        value={entry.code}
+        aria-label={`Service code (currently ${codeOf(entry, index)})`}
+        onInput={(e) => onCode(entry.id, (e.target as HTMLInputElement).value)}
+      />
 
       <div class="swatches">
         <div class="swatch" style={{ background: entry.color, color: labelColor(entry.color) }}>
@@ -139,7 +186,7 @@ function EntryRow(props: {
         <input
           type="color"
           value={entry.color}
-          aria-label={`Line ${index + 1} color`}
+          aria-label={`Line ${codeOf(entry, index)} color`}
           onInput={(e) => onEdit(entry.id, (e.target as HTMLInputElement).value, `pick:${entry.id}`)}
         />
         <input
@@ -290,6 +337,12 @@ export function App() {
       coalesceKey,
     );
 
+  const onCode = (id: string, code: string) =>
+    apply(
+      (s) => ({ ...s, entries: s.entries.map((e) => (e.id === id ? { ...e, code: normCode(code) } : e)) }),
+      `code:${id}`,
+    );
+
   const onToggleLock = (id: string) =>
     setEntries((es) =>
       es.map((e) =>
@@ -298,7 +351,8 @@ export function App() {
     );
 
   const onRemove = (id: string) => setEntries((es) => es.filter((e) => e.id !== id));
-  const onAdd = () => setEntries((es) => (es.length >= MAX_ENTRIES ? es : [...es, mk('#777777')]));
+  const onAdd = () =>
+    setEntries((es) => (es.length >= MAX_ENTRIES ? es : [...es, mk('#777777', false, false, nextCode(es))]));
 
   const recompute = () => {
     setBusy(true);
@@ -325,10 +379,10 @@ export function App() {
   // exports
   const copy = (text: string) => navigator.clipboard?.writeText(text);
   const exportHex = () => copy(entries.map((e) => e.color).join('\n'));
-  const exportCss = () => copy(entries.map((e, i) => `  --line-${i + 1}: ${e.color};`).join('\n'));
+  const exportCss = () => copy(entries.map((e, i) => `  --line-${codeOf(e, i)}: ${e.color};`).join('\n'));
   const exportJson = () => {
     const data = JSON.stringify(
-      entries.map((e, i) => ({ line: i + 1, human: e.color, cat: catHex(e.color), locked: e.locked })),
+      entries.map((e, i) => ({ line: codeOf(e, i), human: e.color, cat: catHex(e.color), locked: e.locked })),
       null,
       2,
     );
@@ -360,7 +414,9 @@ export function App() {
       setLoadErr('No colors found. Paste hex values (e.g. #1a2b3c) or a catsafe JSON export.');
       return;
     }
-    const next = parsed.slice(0, MAX_ENTRIES).map((p) => mk(p.color, p.locked, false));
+    const next = parsed
+      .slice(0, MAX_ENTRIES)
+      .map((p, i) => mk(p.color, p.locked, false, p.code ? normCode(p.code) : colLabel(i)));
     apply((s) => ({ ...s, entries: next }));
     setLoadOpen(false);
   };
@@ -371,7 +427,7 @@ export function App() {
     fill: s.hex,
     humanHex: s.hex,
     catHex: s.catHex,
-    label: String(i + 1),
+    label: codeOf(entries[i], i),
   }));
   const catPts = sims.map((s, i) => ({
     x: s.catXY.x,
@@ -379,7 +435,7 @@ export function App() {
     fill: s.catHex,
     humanHex: s.hex,
     catHex: s.catHex,
-    label: String(i + 1),
+    label: codeOf(entries[i], i),
   }));
 
   return (
@@ -444,7 +500,7 @@ export function App() {
           <label>Min separation (ΔS, JND)</label>
           <div class="score">{score.min === Infinity ? '—' : score.min.toFixed(1)}</div>
           <div class="score-sub">
-            {wi >= 0 ? `worst pair: lines ${wi + 1} & ${wj + 1}` : 'add 2+ colors'}
+            {wi >= 0 ? `worst pair: lines ${codeOf(entries[wi], wi)} & ${codeOf(entries[wj], wj)}` : 'add 2+ colors'}
           </div>
         </div>
 
@@ -506,6 +562,7 @@ export function App() {
             minContrast={minContrast}
             isWorst={i === wi || i === wj}
             onEdit={onEdit}
+            onCode={onCode}
             onToggleLock={onToggleLock}
             onRemove={onRemove}
           />
