@@ -16,15 +16,19 @@ function normHex(raw: string): string | null {
   return /^[0-9a-fA-F]{6}$/.test(v) ? '#' + v.toLowerCase() : null;
 }
 
+type ParsedPalette = { name: string | null; colors: Array<{ color: string; locked: boolean }> };
+
 /** Parse a pasted palette: a catsafe JSON export, a JSON array, or loose hex tokens. */
-function parsePalette(text: string): Array<{ color: string; locked: boolean }> {
+function parsePalette(text: string): ParsedPalette {
   const t = text.trim();
-  if (!t) return [];
+  if (!t) return { name: null, colors: [] };
   try {
     const j = JSON.parse(t);
-    if (Array.isArray(j)) {
+    // New exports are { name, colors: [...] }; older ones are a bare array.
+    const arr = Array.isArray(j) ? j : Array.isArray(j?.colors) ? j.colors : null;
+    if (arr) {
       const out: Array<{ color: string; locked: boolean }> = [];
-      for (const x of j) {
+      for (const x of arr) {
         if (typeof x === 'string') {
           const h = normHex(x);
           if (h) out.push({ color: h, locked: false });
@@ -33,7 +37,10 @@ function parsePalette(text: string): Array<{ color: string; locked: boolean }> {
           if (h) out.push({ color: h, locked: !!x.locked });
         }
       }
-      if (out.length) return out;
+      if (out.length) {
+        const name = !Array.isArray(j) && typeof j.name === 'string' ? j.name : null;
+        return { name, colors: out };
+      }
     }
   } catch {
     /* not JSON — fall through to token scan */
@@ -44,7 +51,7 @@ function parsePalette(text: string): Array<{ color: string; locked: boolean }> {
     const h = normHex(tok);
     if (h) out.push({ color: h, locked: false });
   }
-  return out;
+  return { name: null, colors: out };
 }
 
 const uid = () =>
@@ -53,6 +60,7 @@ const uid = () =>
 const mk = (color: string, locked = false, edited = false): Entry => ({ id: uid(), color, locked, edited });
 
 const DEFAULT_STATE: State = {
+  name: '',
   entries: [mk('#c1272d'), mk('#0061a8'), mk('#1f9e57'), mk('#e58a00'), mk('#6a3d9a')],
   catWeight: 0.5,
   background: '#ffffff',
@@ -186,6 +194,7 @@ export function App() {
   const [loadErr, setLoadErr] = useState('');
   const state = hist.present;
   const { entries, catWeight, background, minContrast } = state;
+  const name = state.name ?? ''; // legacy saved states predate this field
   const canUndo = hist.past.length > 0;
   const canRedo = hist.future.length > 0;
 
@@ -327,16 +336,21 @@ export function App() {
   const exportHex = () => copy(entries.map((e) => e.color).join('\n'));
   const exportCss = () => copy(entries.map((e, i) => `  --line-${i + 1}: ${e.color};`).join('\n'));
   const exportJson = () => {
+    const paletteName = name.trim() || 'Untitled palette';
     const data = JSON.stringify(
-      entries.map((e, i) => ({ line: i + 1, human: e.color, cat: catHex(e.color), locked: e.locked })),
+      {
+        name: paletteName,
+        colors: entries.map((e, i) => ({ line: i + 1, human: e.color, cat: catHex(e.color), locked: e.locked })),
+      },
       null,
       2,
     );
+    const slug = paletteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'catsafe-palette.json';
+    a.download = (slug || 'catsafe-palette') + '.json';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -356,12 +370,12 @@ export function App() {
   };
   const doLoad = () => {
     const parsed = parsePalette(loadText);
-    if (parsed.length === 0) {
+    if (parsed.colors.length === 0) {
       setLoadErr('No colors found. Paste hex values (e.g. #1a2b3c) or a catsafe JSON export.');
       return;
     }
-    const next = parsed.slice(0, MAX_ENTRIES).map((p) => mk(p.color, p.locked, false));
-    apply((s) => ({ ...s, entries: next }));
+    const next = parsed.colors.slice(0, MAX_ENTRIES).map((p) => mk(p.color, p.locked, false));
+    apply((s) => ({ ...s, entries: next, name: parsed.name ?? s.name }));
     setLoadOpen(false);
   };
 
@@ -389,6 +403,20 @@ export function App() {
         <p class="tagline">
           Transit-line color palettes that stay distinct for humans <em>and</em> cats.
         </p>
+        <div class="name-control">
+          <label for="palette-name">Palette name</label>
+          <input
+            id="palette-name"
+            class="palette-name"
+            type="text"
+            value={name}
+            spellcheck={false}
+            maxLength={60}
+            placeholder="Untitled palette"
+            aria-label="Palette name"
+            onInput={(e) => update({ name: (e.target as HTMLInputElement).value }, 'name')}
+          />
+        </div>
       </header>
 
       <section class="controls">
