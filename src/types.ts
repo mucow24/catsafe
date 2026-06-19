@@ -9,6 +9,8 @@ export interface Entry {
 }
 
 export interface State {
+  /** User-given palette name; embedded in exports. */
+  name: string;
   entries: Entry[];
   /** 0 = optimize purely for humans, 1 = purely for cats. */
   catWeight: number;
