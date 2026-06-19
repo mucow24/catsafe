@@ -1,5 +1,7 @@
 export interface Entry {
   id: string;
+  /** Two-char service code shown in place of a line number (e.g. "A", "Q", "AA"). User-editable. */
+  code: string;
   /** sRGB hex, e.g. "#3366cc" — the human-facing color. */
   color: string;
   /** Frozen from recompute. Single source of truth for "is this an anchor?". */
