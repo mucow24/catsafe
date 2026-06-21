@@ -1,5 +1,5 @@
 import { useId, useState } from 'preact/hooks';
-import { labelColor } from '../color';
+import { labelColor, type XY } from '../color';
 
 export type Pt = { x: number; y: number; fill: string; label: string; humanHex: string; catHex: string };
 
@@ -28,6 +28,9 @@ export function Scatter({
   unit,
   gamutBoundary,
   note,
+  onPick,
+  marker,
+  hint,
 }: {
   title: string;
   points: Pt[];
@@ -36,9 +39,16 @@ export function Scatter({
   unit?: string;
   /** Closed polygon (in plot coords) bounding the human-visible region; the area
    *  inside the plot box but outside it is shaded as unreachable. */
-  gamutBoundary?: { x: number; y: number }[];
+  gamutBoundary?: XY[];
   /** Small caption under the plot (e.g. to explain the shading). */
   note?: string;
+  /** If set, clicking the plot reports the clicked data location plus the
+   *  cursor's viewport position (so the caller can place a popup there). */
+  onPick?: (loc: XY, screen: { x: number; y: number }) => void;
+  /** Data-space location to draw a crosshair at (e.g. the last picked spot). */
+  marker?: XY | null;
+  /** Small muted caption under the plot — e.g. a "click to inspect" hint. */
+  hint?: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const clipId = useId();
@@ -74,16 +84,52 @@ export function Scatter({
   const cp = closestPair(points);
   const fmt = (d: number) => (d < 1 ? d.toFixed(3) : d.toFixed(1));
 
+  // Map a click to a data-space location, inverting sx/sy. getScreenCTM handles
+  // CSS scaling and viewBox letterboxing, so the math stays in viewBox units.
+  const handleClick = (e: MouseEvent) => {
+    if (!onPick) return;
+    const svg = e.currentTarget as SVGSVGElement;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const v = pt.matrixTransform(ctm.inverse());
+    if (v.x < ox || v.x > ox + plot || v.y < oy || v.y > oy + plot) return; // outside the plot box
+    const x = cxD + (v.x - ox - plot / 2) / scale;
+    const y = cyD - (v.y - oy - plot / 2) / scale;
+    onPick({ x, y }, { x: e.clientX, y: e.clientY });
+  };
+
+  // Keyboard path: each dot is focusable; Enter/Space picks at that dot, with the
+  // popup anchored to the dot's on-screen centre. A 2-D plane has no good "spot"
+  // for the keyboard, but the plotted colors are exactly the meaningful spots.
+  const handleKeyPick = (e: KeyboardEvent, p: Pt) => {
+    if (!onPick || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    const r = (e.currentTarget as SVGGraphicsElement).getBoundingClientRect();
+    onPick({ x: p.x, y: p.y }, { x: r.x + r.width / 2, y: r.y + r.height / 2 });
+  };
+
   return (
     <div class="scatter">
       <div class="scatter-title">{title}</div>
-      <svg viewBox={`0 0 ${S} ${S}`} class="scatter-svg" role="img" aria-label={title}>
-        {gamutBoundary && gamutBoundary.length > 2 && (
-          <defs>
-            <clipPath id={clipId}>
-              <rect x={ox} y={oy} width={plot} height={plot} rx="6" />
-            </clipPath>
-            {/* Diagonal hatch marking the unreachable region. */}
+      <svg
+        viewBox={`0 0 ${S} ${S}`}
+        class={`scatter-svg${onPick ? ' pickable' : ''}`}
+        // A plain image when static; a labelled group when pickable, so the
+        // focusable dot-buttons inside stay exposed to assistive tech (role="img"
+        // would prune them).
+        role={onPick ? 'group' : 'img'}
+        aria-label={title}
+        onClick={onPick ? handleClick : undefined}
+      >
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={ox} y={oy} width={plot} height={plot} rx="6" />
+          </clipPath>
+          {gamutBoundary && gamutBoundary.length > 2 && (
+            // Diagonal hatch marking the unreachable region.
             <pattern
               id={hatchId}
               width="7"
@@ -94,8 +140,8 @@ export function Scatter({
               <rect width="7" height="7" class="oog-bg" />
               <line x1="0" y1="0" x2="0" y2="7" class="oog-line" />
             </pattern>
-          </defs>
-        )}
+          )}
+        </defs>
         <rect x={ox} y={oy} width={plot} height={plot} class="scatter-bg" rx="6" />
         {gamutBoundary && gamutBoundary.length > 2 && (
           // Fill the plot box, then punch out the in-gamut polygon (even-odd), so
@@ -138,17 +184,32 @@ export function Scatter({
             >
               {p.label}
             </text>
-            {/* larger transparent hit target so the small dots are easy to hover */}
+            {/* larger transparent hit target so the small dots are easy to hover,
+                and — when pickable — a keyboard-focusable button to inspect this dot */}
             <circle
               cx={sx(p.x)}
               cy={sy(p.y)}
               r="11"
               fill="transparent"
+              class={onPick ? 'pick-target' : undefined}
+              tabIndex={onPick ? 0 : undefined}
+              role={onPick ? 'button' : undefined}
+              aria-label={onPick ? `Show the colors a cat sees at line ${p.label}` : undefined}
               onMouseEnter={() => setHover(i)}
               onMouseLeave={() => setHover((h) => (h === i ? null : h))}
+              onFocus={onPick ? () => setHover(i) : undefined}
+              onBlur={onPick ? () => setHover((h) => (h === i ? null : h)) : undefined}
+              onKeyDown={onPick ? (e) => handleKeyPick(e, p) : undefined}
             />
           </g>
         ))}
+        {marker && (
+          <g pointer-events="none" class="pick-marker" clip-path={`url(#${clipId})`}>
+            <circle cx={sx(marker.x)} cy={sy(marker.y)} r="7.5" class="pick-ring" />
+            <line x1={sx(marker.x) - 11} y1={sy(marker.y)} x2={sx(marker.x) + 11} y2={sy(marker.y)} class="pick-cross" />
+            <line x1={sx(marker.x)} y1={sy(marker.y) - 11} x2={sx(marker.x)} y2={sy(marker.y) + 11} class="pick-cross" />
+          </g>
+        )}
         {hover != null && points[hover] && (
           <Tip p={points[hover]} x={sx(points[hover].x)} y={sy(points[hover].y)} bounds={S} />
         )}
@@ -176,6 +237,7 @@ export function Scatter({
         </div>
       )}
       {note && <div class="scatter-note">{note}</div>}
+      {hint && <div class="scatter-hint">{hint}</div>}
     </div>
   );
 }

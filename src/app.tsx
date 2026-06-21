@@ -2,15 +2,19 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import {
   catGamutBoundary,
   catHex,
+  catMetamers,
   contrastRatio,
   isLightBackground,
   labelColor,
   paletteScore,
   simulate,
+  type Metamer,
   type Sim,
+  type XY,
 } from './color';
 import { optimizePalette } from './optimize';
 import { Scatter } from './components/Scatter';
+import { MetamerPopup } from './components/MetamerPopup';
 import type { Entry, State } from './types';
 
 const MAX_ENTRIES = 20;
@@ -248,6 +252,8 @@ export function App() {
   const [loadOpen, setLoadOpen] = useState(false);
   const [loadText, setLoadText] = useState('');
   const [loadErr, setLoadErr] = useState('');
+  // A spot the user clicked in the cat plot, plus the metamer colors there.
+  const [pick, setPick] = useState<{ loc: XY; screen: { x: number; y: number }; metamers: Metamer[] } | null>(null);
   const state = hist.present;
   const { entries, catWeight, background, minContrast } = state;
   const name = state.name ?? ''; // legacy saved states predate this field
@@ -463,6 +469,11 @@ export function App() {
   // The sRGB gamut's image in cat cone space — constant, so compute it once.
   const catGamut = useMemo(() => catGamutBoundary(), []);
 
+  // Click a spot in the cat plot to inspect every sRGB color that lands there —
+  // the metamer set a cat perceives as one color (see catMetamers).
+  const onPickCat = (loc: XY, screen: { x: number; y: number }) =>
+    setPick({ loc, screen, metamers: catMetamers(loc) });
+
   return (
     <div class="app">
       <header>
@@ -625,8 +636,20 @@ export function App() {
           unit="ΔS"
           gamutBoundary={catGamut}
           note="Hatched: cone-space no human-visible (sRGB) color can reach"
+          onPick={onPickCat}
+          marker={pick?.loc ?? null}
+          hint="Click a spot — or tab to a line — to see the colors a cat sees there"
         />
       </section>
+
+      {pick && (
+        <MetamerPopup
+          loc={pick.loc}
+          screen={pick.screen}
+          metamers={pick.metamers}
+          onClose={() => setPick(null)}
+        />
+      )}
 
       {loadOpen && (
         <div class="modal-overlay" onClick={() => setLoadOpen(false)}>
