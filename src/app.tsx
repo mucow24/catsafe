@@ -1,5 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { catHex, contrastRatio, isLightBackground, labelColor, paletteScore, simulate, type Sim } from './color';
+import {
+  catHex,
+  contrastRatio,
+  hexToHsl,
+  hslToHex,
+  isLightBackground,
+  labelColor,
+  paletteScore,
+  simulate,
+  type Hsl,
+  type Sim,
+} from './color';
 import { optimizePalette } from './optimize';
 import { Scatter } from './components/Scatter';
 import type { Entry, State } from './types';
@@ -138,6 +149,67 @@ function loadInitial(): State {
 
 // --- per-entry row -----------------------------------------------------------
 
+/** Numeric H/S/L field. The native spinner, ↑/↓ keys, and wheel-over all nudge
+ *  by `step` (0.5); values carry one decimal place. Uncontrolled so the field
+ *  owns its text buffer while typing — we only write back when `value` changes
+ *  from outside (and the field isn't focused). */
+function HslInput(props: {
+  label: string;
+  title: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+}) {
+  const { label, title, value, min, max, step, onChange } = props;
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (el && document.activeElement !== el) el.value = value.toFixed(1);
+  }, [value]);
+
+  // Clamp to range and snap to one decimal so the stored HSL matches the display.
+  const commit = (raw: string) => {
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n)) return;
+    onChange(Math.round(Math.min(max, Math.max(min, n)) * 10) / 10);
+  };
+
+  // Drive the wheel through the native stepper so it snaps and clamps exactly
+  // like the arrows and spinner do.
+  const onWheel = (e: WheelEvent) => {
+    const el = ref.current;
+    if (!el) return;
+    e.preventDefault();
+    if (e.deltaY < 0) el.stepUp();
+    else el.stepDown();
+    commit(el.value);
+  };
+
+  return (
+    <label class="hsl-field" title={title}>
+      <span class="hsl-label">{label}</span>
+      <input
+        ref={ref}
+        class="hsl-num"
+        type="number"
+        inputMode="decimal"
+        min={min}
+        max={max}
+        step={step}
+        defaultValue={value.toFixed(1)}
+        onInput={(e) => commit((e.target as HTMLInputElement).value)}
+        onWheel={onWheel}
+        onBlur={(e) => {
+          (e.target as HTMLInputElement).value = value.toFixed(1);
+        }}
+      />
+    </label>
+  );
+}
+
 function EntryRow(props: {
   entry: Entry;
   index: number;
@@ -153,11 +225,84 @@ function EntryRow(props: {
   const cat = catHex(entry.color);
   const cr = contrastRatio(entry.color, bg);
   const lowContrast = cr < minContrast;
-  const [copied, setCopied] = useState(false);
-  const copyHex = () => {
-    navigator.clipboard?.writeText(entry.color);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1000);
+
+  // HSL is the editable representation; hex stays the source of truth in state.
+  // Keeping a local triplet makes 0.5 steps exact — round-tripping every nudge
+  // through 8-bit hex would quantize fine hue/sat moves. Re-sync only when the
+  // color changes from outside this row (recompute, undo, load), not from our
+  // own edit (which we recognize by the hex we last emitted).
+  const [hslState, setHslState] = useState<Hsl>(() => hexToHsl(entry.color));
+  const lastEmitted = useRef(entry.color);
+  useEffect(() => {
+    if (entry.color !== lastEmitted.current) {
+      setHslState(hexToHsl(entry.color));
+      lastEmitted.current = entry.color;
+    }
+  }, [entry.color]);
+  const setChannel = (patch: Partial<Hsl>) => {
+    const next = { ...hslState, ...patch };
+    setHslState(next);
+    const hex = hslToHex(next);
+    lastEmitted.current = hex;
+    onEdit(entry.id, hex, `hsl:${entry.id}`);
+  };
+
+  // Click a swatch to copy its hex; double-click the human swatch to edit it.
+  const [copied, setCopied] = useState<'human' | 'cat' | null>(null);
+  const copyTimer = useRef<number | null>(null);
+  const clickTimer = useRef<number | null>(null);
+  const flashCopied = (which: 'human' | 'cat', hex: string) => {
+    navigator.clipboard?.writeText(hex);
+    setCopied(which);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopied(null), 1000);
+  };
+
+  const [editing, setEditing] = useState(false);
+  const [hexDraft, setHexDraft] = useState(entry.color);
+  const hexRef = useRef<HTMLInputElement>(null);
+  const doneRef = useRef(false);
+  useEffect(() => {
+    if (editing) {
+      const el = hexRef.current;
+      el?.focus();
+      el?.select();
+    }
+  }, [editing]);
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+    },
+    [],
+  );
+
+  // Debounce the single-click copy so a double-click (to edit) doesn't also copy.
+  const onHumanClick = () => {
+    if (editing || clickTimer.current) return;
+    clickTimer.current = window.setTimeout(() => {
+      clickTimer.current = null;
+      flashCopied('human', entry.color);
+    }, 200);
+  };
+  const onHumanDblClick = () => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+    setHexDraft(entry.color);
+    doneRef.current = false;
+    setEditing(true);
+  };
+  // Guarded so the trailing blur after Enter/Escape can't commit a second time.
+  const finishEdit = (save: boolean) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    if (save) {
+      const norm = normHex(hexDraft);
+      if (norm) onEdit(entry.id, norm);
+    }
+    setEditing(false);
   };
 
   const lockLabel = entry.locked ? (entry.edited ? '✎' : '🔒') : '🔓';
@@ -180,41 +325,78 @@ function EntryRow(props: {
       />
 
       <div class="swatches">
-        <div class="swatch" style={{ background: entry.color, color: labelColor(entry.color) }}>
-          <span class="sw-label">human</span>
-          <span class="sw-hex">{entry.color}</span>
+        <div
+          class="swatch interactive"
+          style={{ background: entry.color, color: labelColor(entry.color) }}
+          onClick={onHumanClick}
+          onDblClick={onHumanDblClick}
+          title="Click to copy · double-click to edit"
+        >
+          {editing ? (
+            <input
+              ref={hexRef}
+              class="swatch-hex-edit"
+              type="text"
+              spellcheck={false}
+              value={hexDraft}
+              aria-label={`Edit hex for line ${codeOf(entry, index)}`}
+              onClick={(e) => e.stopPropagation()}
+              onDblClick={(e) => e.stopPropagation()}
+              onInput={(e) => setHexDraft((e.target as HTMLInputElement).value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') finishEdit(true);
+                else if (e.key === 'Escape') finishEdit(false);
+              }}
+              onBlur={() => finishEdit(true)}
+            />
+          ) : (
+            <>
+              <span class="sw-label">human</span>
+              <span class="sw-hex">{copied === 'human' ? 'copied ✓' : entry.color}</span>
+            </>
+          )}
         </div>
-        <div class="swatch" style={{ background: cat, color: labelColor(cat) }}>
+        <div
+          class="swatch interactive"
+          style={{ background: cat, color: labelColor(cat) }}
+          onClick={() => flashCopied('cat', cat)}
+          title="Click to copy"
+        >
           <span class="sw-label">cat</span>
-          <span class="sw-hex">{cat}</span>
+          <span class="sw-hex">{copied === 'cat' ? 'copied ✓' : cat}</span>
         </div>
       </div>
 
       <div class="row-controls">
-        <input
-          type="color"
-          value={entry.color}
-          aria-label={`Line ${codeOf(entry, index)} color`}
-          onInput={(e) => onEdit(entry.id, (e.target as HTMLInputElement).value, `pick:${entry.id}`)}
-        />
-        <input
-          class="hex-input"
-          type="text"
-          spellcheck={false}
-          value={entry.color}
-          onChange={(e) => {
-            const v = (e.target as HTMLInputElement).value.trim();
-            if (/^#?[0-9a-fA-F]{6}$/.test(v)) onEdit(entry.id, v.startsWith('#') ? v : '#' + v);
-          }}
-        />
-        <button
-          class={`copy-hex${copied ? ' done' : ''}`}
-          title={copied ? 'Copied!' : 'Copy hex'}
-          aria-label="Copy hex code"
-          onClick={copyHex}
-        >
-          {copied ? '✓' : '⧉'}
-        </button>
+        <div class="hsl-group">
+          <HslInput
+            label="H"
+            title="Hue (0–360°)"
+            value={hslState.h}
+            min={0}
+            max={360}
+            step={1}
+            onChange={(h) => setChannel({ h })}
+          />
+          <HslInput
+            label="S"
+            title="Saturation (0–100%)"
+            value={hslState.s}
+            min={0}
+            max={100}
+            step={0.5}
+            onChange={(s) => setChannel({ s })}
+          />
+          <HslInput
+            label="L"
+            title="Lightness (0–100%)"
+            value={hslState.l}
+            min={0}
+            max={100}
+            step={0.5}
+            onChange={(l) => setChannel({ l })}
+          />
+        </div>
         <span class={`contrast${lowContrast ? ' bad' : ''}`} title="WCAG contrast vs background">
           {cr.toFixed(1)}:1
         </span>
