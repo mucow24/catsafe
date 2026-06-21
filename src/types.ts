@@ -4,10 +4,9 @@ export interface Entry {
   code: string;
   /** sRGB hex, e.g. "#3366cc" — the human-facing color. */
   color: string;
-  /** Frozen from recompute. Single source of truth for "is this an anchor?". */
+  /** Frozen from recompute. Single source of truth for "is this an anchor?". An
+   *  edit locks the row; recompute regenerates only unlocked rows. */
   locked: boolean;
-  /** User manually typed this value. Implies locked (edit = permanent lock); badge only. */
-  edited: boolean;
 }
 
 export interface State {

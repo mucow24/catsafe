@@ -7,7 +7,7 @@ interface Candidate {
 }
 
 export interface OptimizeParams {
-  /** Locked/edited colors, kept exactly as-is and used as fixed references. */
+  /** Locked colors, kept exactly as-is and used as fixed references. */
   anchors: string[];
   /** How many non-locked entries to (re)generate. */
   freeCount: number;
