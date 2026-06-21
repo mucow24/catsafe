@@ -95,17 +95,16 @@ function nextCode(entries: Entry[]): string {
 /** Display/export identifier: the entry's code, falling back to its positional label. */
 const codeOf = (entry: Entry, index: number) => entry.code || colLabel(index);
 
-const mk = (color: string, locked = false, edited = false, code = ''): Entry => ({
+const mk = (color: string, locked = false, code = ''): Entry => ({
   id: uid(),
   code,
   color,
   locked,
-  edited,
 });
 
 const DEFAULT_STATE: State = {
   name: '',
-  entries: ['#c1272d', '#0061a8', '#1f9e57', '#e58a00', '#6a3d9a'].map((c, i) => mk(c, false, false, colLabel(i))),
+  entries: ['#c1272d', '#0061a8', '#1f9e57', '#e58a00', '#6a3d9a'].map((c, i) => mk(c, false, colLabel(i))),
   catWeight: 0.5,
   background: '#ffffff',
   minContrast: 3,
@@ -172,12 +171,8 @@ function EntryRow(props: {
     setTimeout(() => setCopied(false), 1000);
   };
 
-  const lockLabel = entry.locked ? (entry.edited ? '✎' : '🔒') : '🔓';
-  const lockTitle = entry.locked
-    ? entry.edited
-      ? 'Edited & locked — click to release to the optimizer'
-      : 'Locked — click to unlock'
-    : 'Unlocked — click to lock';
+  const lockLabel = entry.locked ? '🔒' : '🔓';
+  const lockTitle = entry.locked ? 'Locked — click to unlock' : 'Unlocked — click to lock';
 
   return (
     <div class={`row${isWorst ? ' worst' : ''}${entry.locked ? ' locked' : ''}`}>
@@ -355,7 +350,7 @@ export function App() {
     apply(
       (s) => ({
         ...s,
-        entries: s.entries.map((e) => (e.id === id ? { ...e, color, edited: true, locked: true } : e)),
+        entries: s.entries.map((e) => (e.id === id ? { ...e, color, locked: true } : e)),
       }),
       coalesceKey,
     );
@@ -367,15 +362,11 @@ export function App() {
     );
 
   const onToggleLock = (id: string) =>
-    setEntries((es) =>
-      es.map((e) =>
-        e.id === id ? (e.locked ? { ...e, locked: false, edited: false } : { ...e, locked: true }) : e,
-      ),
-    );
+    setEntries((es) => es.map((e) => (e.id === id ? { ...e, locked: !e.locked } : e)));
 
   const onRemove = (id: string) => setEntries((es) => es.filter((e) => e.id !== id));
   const onAdd = () =>
-    setEntries((es) => (es.length >= MAX_ENTRIES ? es : [...es, mk('#777777', false, false, nextCode(es))]));
+    setEntries((es) => (es.length >= MAX_ENTRIES ? es : [...es, mk('#777777', false, nextCode(es))]));
 
   const recompute = () => {
     setBusy(true);
@@ -392,7 +383,7 @@ export function App() {
           minContrast: s.minContrast,
         });
         let k = 0;
-        const next = s.entries.map((e) => (e.locked ? e : { ...e, color: colors[k++] ?? e.color, edited: false }));
+        const next = s.entries.map((e) => (e.locked ? e : { ...e, color: colors[k++] ?? e.color }));
         return { ...s, entries: next };
       });
       setBusy(false);
@@ -444,7 +435,7 @@ export function App() {
     }
     const next = parsed.colors
       .slice(0, MAX_ENTRIES)
-      .map((p, i) => mk(p.color, p.locked, false, p.code ? normCode(p.code) : colLabel(i)));
+      .map((p, i) => mk(p.color, p.locked, p.code ? normCode(p.code) : colLabel(i)));
     apply((s) => ({ ...s, entries: next, name: parsed.name ?? s.name }));
     setLoadOpen(false);
   };

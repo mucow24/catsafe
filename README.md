@@ -7,9 +7,8 @@ Cats are dichromats — their color confusion structure matches a human red-gree
 ## Features
 
 - **Add / remove** palette entries, one color each.
-- **Lock** a color so recompute never touches it (🔒).
-- **Manually edit** a color via the swatch picker or a hex field — this pins it (✎, edit = permanent lock until you unlock).
-- **Recompute** all non-locked entries to maximize perceptual separation, with locked/edited colors held as fixed anchors.
+- **Lock** a color so recompute never touches it (🔒). Manually editing a color via the swatch picker or a hex field locks the row too; unlock to release it back to the optimizer.
+- **Recompute** all unlocked entries to maximize perceptual separation, with locked colors held as fixed anchors.
 - **Human ↔ Cat slider** — biases the optimizer. At the cat end it uses a worst-case objective: `(1−w)·d_human + w·min(d_human, d_cat)`, so a big human gap can't paper over a collapsed cat gap.
 - **Dual swatches** per entry — the human color and the simulated cat color side by side.
 - **Map mode** — a hard WCAG contrast filter against a settable background (default white), with auto black/white labels.
