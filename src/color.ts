@@ -1,7 +1,9 @@
-import { rgb, oklab, oklch, formatHex, wcagLuminance, clampChroma } from 'culori';
+import { rgb, oklab, oklch, hsl, formatHex, wcagLuminance, clampChroma } from 'culori';
 
 export type Lab = { l: number; a: number; b: number };
 export type XY = { x: number; y: number };
+/** HSL in display units: h 0–360°, s/l 0–100%. */
+export type Hsl = { h: number; s: number; l: number };
 /** A color in both perceptual fields: human OKLab, and the cat 2D RNL cone space. */
 export type Sim = { human: Lab; catXY: XY };
 /** One member of a cat-metamer set: a human sRGB hex and its illustrative cat rendering. */
@@ -108,6 +110,20 @@ export function catHex(hex: string): string {
 export function toLab(hex: string): Lab {
   const o = oklab(hex);
   return o ? { l: o.l ?? 0, a: o.a ?? 0, b: o.b ?? 0 } : { l: 0, a: 0, b: 0 };
+}
+
+/** sRGB hex → HSL in display units (h 0–360, s/l 0–100), each rounded to 0.1.
+ *  Achromatic colors report h = 0 (culori leaves hue undefined for grays). */
+export function hexToHsl(hex: string): Hsl {
+  const c = hsl(hex);
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  if (!c) return { h: 0, s: 0, l: 0 };
+  return { h: r1(c.h ?? 0), s: r1((c.s ?? 0) * 100), l: r1((c.l ?? 0) * 100) };
+}
+
+/** HSL in display units (h 0–360, s/l 0–100) → sRGB hex. */
+export function hslToHex({ h, s, l }: Hsl): string {
+  return formatHex({ mode: 'hsl', h, s: s / 100, l: l / 100 }) ?? '#000000';
 }
 
 /** Full simulation: human OKLab, cat RNL coords, and a displayable cat hex. */

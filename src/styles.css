@@ -36,10 +36,6 @@
 :root.light-map .modal-err {
   color: #c62828;
 }
-:root.light-map .copy-hex.done {
-  border-color: #2e7d4f;
-  color: #2e7d4f;
-}
 /* Scatter plots: light plot area, plus axes/link/tooltip retuned for it. The
    dark-theme defaults are pale strokes on near-black and invert poorly. The
    tooltip flips to light-on-dark-text since .tip-text rides --text (now dark). */
@@ -284,6 +280,28 @@ input[type="color"] {
   padding: 0 12px;
   overflow: hidden;
 }
+/* Swatches are click-to-copy; the ring signals they're interactive. */
+.swatch.interactive {
+  cursor: pointer;
+  transition: box-shadow 0.12s;
+}
+.swatch.interactive:hover {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* Inline hex editor (double-click the human swatch) — a plain text box that
+   pops over the color so it reads regardless of the swatch's lightness. */
+.swatch-hex-edit {
+  width: 100%;
+  font: 600 14px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--accent-2);
+  border-radius: 6px;
+  padding: 8px;
+}
+.swatch-hex-edit:focus {
+  outline: none;
+}
 .sw-label {
   font-size: 10px;
   text-transform: uppercase;
@@ -301,15 +319,37 @@ input[type="color"] {
   align-items: center;
   gap: 8px;
 }
-.hex-input {
-  width: 92px;
+
+/* H/S/L editors — one decimal of precision, nudged 0.5 per step. */
+.hsl-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hsl-field {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.hsl-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.hsl-num {
+  width: 64px;
   font: 13px/1 ui-monospace, Menlo, Consolas, monospace;
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 7px 8px;
+  padding: 7px 4px 7px 6px;
 }
+.hsl-num:focus {
+  outline: none;
+  border-color: var(--accent-2);
+}
+
 .contrast {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -321,14 +361,9 @@ input[type="color"] {
   color: #ff8a80;
 }
 .lock,
-.remove,
-.copy-hex {
+.remove {
   padding: 6px 9px;
   line-height: 1;
-}
-.copy-hex.done {
-  border-color: #4caf72;
-  color: #7ddca0;
 }
 .lock.on {
   border-color: var(--accent-2);
