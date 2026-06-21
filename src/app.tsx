@@ -1,5 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { catHex, contrastRatio, isLightBackground, labelColor, paletteScore, simulate, type Sim } from './color';
+import {
+  catGamutBoundary,
+  catHex,
+  contrastRatio,
+  isLightBackground,
+  labelColor,
+  paletteScore,
+  simulate,
+  type Sim,
+} from './color';
 import { optimizePalette } from './optimize';
 import { Scatter } from './components/Scatter';
 import type { Entry, State } from './types';
@@ -451,6 +460,8 @@ export function App() {
     catHex: s.catHex,
     label: codeOf(entries[i], i),
   }));
+  // The sRGB gamut's image in cat cone space — constant, so compute it once.
+  const catGamut = useMemo(() => catGamutBoundary(), []);
 
   return (
     <div class="app">
@@ -612,6 +623,8 @@ export function App() {
           xLabel="yellow ↔ blue"
           yLabel="dark ↔ light"
           unit="ΔS"
+          gamutBoundary={catGamut}
+          note="Hatched: cone-space no human-visible (sRGB) color can reach"
         />
       </section>
 

@@ -45,24 +45,86 @@ const E_LUM = E_L; // luminance rides the abundant L cone
 const CHROMA_SCALE = Math.hypot(E_S, E_L); // ≈ 0.14003
 const EPS = 1e-6;
 
-/** Cat cone catches [qS, qL], von-Kries normalized so white -> 1. */
-function catCones(hex: string): { qS: number; qL: number } {
-  const c = rgb(hex);
-  if (!c) return { qS: 1, qL: 1 };
-  const r = srgbToLinear(c.r);
-  const g = srgbToLinear(c.g);
-  const b = srgbToLinear(c.b);
+/** Cat cone catches [qS, qL] from LINEAR sRGB, von-Kries normalized so white -> 1. */
+function catConesLinear(r: number, g: number, b: number): { qS: number; qL: number } {
   const L = RGB_TO_LMS[0][0] * r + RGB_TO_LMS[0][1] * g + RGB_TO_LMS[0][2] * b;
   const S = RGB_TO_LMS[2][0] * r + RGB_TO_LMS[2][1] * g + RGB_TO_LMS[2][2] * b;
   return { qS: S / WHITE_S, qL: L / WHITE_L };
 }
 
-/** Cat 2D RNL coordinates (JND units): x = yellow↔blue, y = dark↔light. */
-export function catSpace(hex: string): XY {
-  const { qS, qL } = catCones(hex);
+/** Cat cone catches [qS, qL] from an sRGB hex. */
+function catCones(hex: string): { qS: number; qL: number } {
+  const c = rgb(hex);
+  if (!c) return { qS: 1, qL: 1 };
+  return catConesLinear(srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b));
+}
+
+/** Map cone catches to the 2D RNL coordinates that the plot and metric share. */
+function conesToCatSpace(qS: number, qL: number): XY {
   const fS = Math.log(qS + EPS);
   const fL = Math.log(qL + EPS);
   return { x: (fS - fL) / CHROMA_SCALE, y: fL / E_LUM };
+}
+
+/** Cat 2D RNL coordinates (JND units): x = yellow↔blue, y = dark↔light. */
+export function catSpace(hex: string): XY {
+  const { qS, qL } = catCones(hex);
+  return conesToCatSpace(qS, qL);
+}
+
+/** Monotone-chain convex hull (counter-clockwise) of 2D points. */
+function convexHull(pts: XY[]): XY[] {
+  const p = [...pts].sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o: XY, a: XY, b: XY) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: XY[] = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper: XY[] = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+/**
+ * Boundary of the human-visible (sRGB) gamut as it lands in cat RNL space, as an
+ * ordered closed polygon of (x, y) points. Anything *outside* this polygon is a
+ * cone-space coordinate that no sRGB color can produce.
+ *
+ * The linear sRGB cube maps to the (qS, qL) cone-catch plane by a fixed linear
+ * transform, so its image is the convex hull of the 8 cube corners — a hexagon.
+ * `conesToCatSpace` (per-axis log + invertible affine) is a homeomorphism, so the
+ * gamut's image is that hexagon's image, bounded by the image of its edges. Each
+ * hull edge is sampled finely because the log warps straight edges into curves.
+ */
+export function catGamutBoundary(perEdge = 48): XY[] {
+  const CUBE: ReadonlyArray<readonly [number, number, number]> = [
+    [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1],
+    [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 1],
+  ];
+  // Take the hull in (qS, qL) space, where the cube's projection is truly convex.
+  const hull = convexHull(
+    CUBE.map(([r, g, b]) => {
+      const { qS, qL } = catConesLinear(r, g, b);
+      return { x: qS, y: qL };
+    }),
+  );
+  const out: XY[] = [];
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i];
+    const b = hull[(i + 1) % hull.length];
+    for (let s = 0; s < perEdge; s++) {
+      const t = s / perEdge;
+      out.push(conesToCatSpace(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------
