@@ -4,6 +4,8 @@ export type Lab = { l: number; a: number; b: number };
 export type XY = { x: number; y: number };
 /** A color in both perceptual fields: human OKLab, and the cat 2D RNL cone space. */
 export type Sim = { human: Lab; catXY: XY };
+/** One member of a cat-metamer set: a human sRGB hex and its illustrative cat rendering. */
+export type Metamer = { hex: string; cat: string };
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const srgbToLinear = (c: number) =>
@@ -111,6 +113,100 @@ export function toLab(hex: string): Lab {
 /** Full simulation: human OKLab, cat RNL coords, and a displayable cat hex. */
 export function simulate(hex: string): Sim & { catHex: string } {
   return { human: toLab(hex), catXY: catSpace(hex), catHex: catHex(hex) };
+}
+
+// ---------------------------------------------------------------------
+// Inverse: cat RNL location -> its metamer set.
+// catSpace fixes only the two cat cone catches (S, L) — two linear constraints
+// on the 3-D linear-sRGB cube — so the preimage of any plotted point is a LINE.
+// Every sRGB color on that line collapses to the same point in cat space, i.e.
+// a cat cannot tell them apart. We solve the line, clip it to the gamut cube,
+// and sample. This is what makes "click a spot, see the colors there" exact.
+// ---------------------------------------------------------------------
+const dot3 = (u: readonly number[], v: readonly number[]) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+// A returned color must round-trip to within this RNL distance (JND) of the
+// clicked location to count as a genuine metamer. Well under the ~1 JND a cat
+// can perceive, so any two survivors are <2× this apart — still indistinguishable.
+const METAMER_TOL = 0.4;
+
+/**
+ * Human sRGB colors that all map to the given cat RNL location (its metamer set),
+ * sampled evenly along the in-gamut segment of the metamer line. Returns `[]`
+ * when the location lies outside the sRGB gamut (no color reaches it). Each
+ * `cat` field is that color's illustrative cat rendering, so a caller can show
+ * the single appearance the whole set shares.
+ */
+export function catMetamers(loc: XY, count = 8): Metamer[] {
+  const A = RGB_TO_LMS[0]; // L-cone row
+  const C = RGB_TO_LMS[2]; // S-cone row
+  // Invert catSpace to recover the target cone catches, then their L/S values.
+  const fL = loc.y * E_LUM;
+  const fS = loc.x * CHROMA_SCALE + fL;
+  const Lt = Math.max(0, Math.exp(fL) - EPS) * WHITE_L;
+  const St = Math.max(0, Math.exp(fS) - EPS) * WHITE_S;
+
+  // Minimum-norm particular solution v0 = α·A + β·C (solve the 2×2 Gram system),
+  // and the line direction d = A × C (perpendicular to both cone-row normals).
+  const aa = dot3(A, A), ac = dot3(A, C), cc = dot3(C, C);
+  const det = aa * cc - ac * ac;
+  const alpha = (cc * Lt - ac * St) / det;
+  const beta = (aa * St - ac * Lt) / det;
+  const v0 = [alpha * A[0] + beta * C[0], alpha * A[1] + beta * C[1], alpha * A[2] + beta * C[2]];
+  const d = [A[1] * C[2] - A[2] * C[1], A[2] * C[0] - A[0] * C[2], A[0] * C[1] - A[1] * C[0]];
+
+  // Clip the line to [0,1]^3 with the slab method. A hair of slack keeps
+  // boundary-only sets (e.g. white, whose only metamer is itself) from collapsing
+  // to a numerically-empty interval.
+  const SLACK = 1e-6;
+  let tmin = -Infinity, tmax = Infinity;
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(d[i]) < 1e-12) {
+      if (v0[i] < -SLACK || v0[i] > 1 + SLACK) return []; // line parallel to & outside this face
+    } else {
+      let t0 = (-SLACK - v0[i]) / d[i];
+      let t1 = (1 + SLACK - v0[i]) / d[i];
+      if (t0 > t1) { const s = t0; t0 = t1; t1 = s; }
+      if (t0 > tmin) tmin = t0;
+      if (t1 < tmax) tmax = t1;
+    }
+  }
+  if (tmin > tmax) return []; // out of gamut
+
+  // The continuous line is exact, but we can only return 8-bit hex colors. The
+  // luminance axis is logarithmic, so near black one LSB is a large ΔS: a naive
+  // sample can quantize to a color that no longer shares `loc` and that a cat
+  // *could* tell apart — breaking the very promise of the set. So oversample,
+  // round-trip each candidate through catSpace, and keep only colors that still
+  // land within a sub-JND tolerance of `loc`. Where 8-bit precision can't
+  // resolve a metamer (deep shadow) this honestly collapses to one color or none.
+  const want = Math.max(1, count);
+  const samples = Math.max(want * 6, 36);
+  const kept: Metamer[] = [];
+  let prev = '';
+  for (let k = 0; k < samples; k++) {
+    const t = samples === 1 ? (tmin + tmax) / 2 : tmin + (tmax - tmin) * (k / (samples - 1));
+    const r = clamp01(v0[0] + t * d[0]);
+    const g = clamp01(v0[1] + t * d[1]);
+    const b = clamp01(v0[2] + t * d[2]);
+    const hex = formatHex({ mode: 'rgb' as const, r: linearToSrgb(r), g: linearToSrgb(g), b: linearToSrgb(b) });
+    if (!hex || hex === prev) continue; // skip neighbours that quantization fused
+    prev = hex;
+    const back = catSpace(hex);
+    if (Math.hypot(back.x - loc.x, back.y - loc.y) > METAMER_TOL) continue; // quantization split it off the line
+    kept.push({ hex, cat: catHex(hex) });
+  }
+  if (kept.length <= want) return kept;
+  // Thin the survivors to an evenly-spaced subset that still spans the segment.
+  const out: Metamer[] = [];
+  let last = '';
+  for (let i = 0; i < want; i++) {
+    const idx = want === 1 ? (kept.length - 1) >> 1 : Math.round((i * (kept.length - 1)) / (want - 1));
+    if (kept[idx].hex !== last) {
+      out.push(kept[idx]);
+      last = kept[idx].hex;
+    }
+  }
+  return out;
 }
 
 /** Euclidean distance in OKLab. */

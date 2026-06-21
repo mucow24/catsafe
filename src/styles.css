@@ -421,6 +421,134 @@ input[type="color"] {
   margin: 0 2px;
 }
 
+/* --- cat-plot metamer picker --- */
+.scatter-svg.pickable {
+  cursor: crosshair;
+}
+.scatter-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+.pick-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.pick-cross {
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+/* Keyboard focus ring on a plot dot (mouse clicks stay ring-free via :focus-visible). */
+.pick-target:focus {
+  outline: none;
+}
+.pick-target:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.metamer-pop {
+  position: fixed;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
+  padding: 12px 12px 14px;
+  max-height: min(72vh, 460px);
+  overflow: auto;
+  /* The card overlaps the plot; let clicks on its inert areas fall through so any
+     spot — even one behind the card — stays pickable. Interactive bits opt back in. */
+  pointer-events: none;
+}
+.metamer-pop:focus {
+  outline: none;
+}
+.metamer-close,
+.metamer-swatch {
+  pointer-events: auto;
+}
+.metamer-close {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  padding: 2px 7px;
+  line-height: 1;
+  font-size: 13px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+.metamer-close:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line);
+}
+.metamer-head {
+  font-weight: 700;
+  font-size: 14px;
+  padding-right: 20px;
+}
+.metamer-loc {
+  margin-top: 2px;
+  font: 11px ui-monospace, Menlo, Consolas, monospace;
+  color: var(--muted);
+}
+.metamer-catrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 10px;
+}
+.metamer-cat-sw {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid #0007;
+}
+.metamer-cat-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.metamer-cat-txt code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.metamer-sub {
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.metamer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.metamer-swatch {
+  height: 34px;
+  padding: 0;
+  border: 1px solid #0006;
+  border-radius: 6px;
+  font: 600 11px ui-monospace, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+.metamer-swatch:hover:not(:disabled) {
+  border-color: #ffffffaa;
+}
+.metamer-empty {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 /* --- load modal --- */
 .modal-overlay {
   position: fixed;
@@ -497,5 +625,16 @@ footer {
   }
   .scatter-pair {
     grid-template-columns: 1fr;
+  }
+  /* On a narrow screen the floating card would cover the square plot and hide the
+     crosshair it describes. Dock it to the bottom as a sheet instead — overrides
+     the JS-set inline left/top/width, which only make sense for the desktop float. */
+  .metamer-pop {
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    bottom: 8px !important;
+    width: auto !important;
+    max-height: 50vh;
   }
 }
