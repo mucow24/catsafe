@@ -504,12 +504,25 @@ input[type="color"] {
 .selected-body {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  /* Stretch both columns to a shared height; each pushes its bottom item to the
+     bottom (below) so the contrast readout lines up with the metamer slider, while
+     the swatches' tops still line up with the H/S/L row. */
+  align-items: stretch;
   gap: 18px;
 }
-.selected-body .swatches {
+/* Left column: the two swatches up top, the contrast readout tucked underneath. */
+.selected-swatch-col {
   flex: 1 1 240px;
   min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: space-between;
+}
+.selected-contrast {
+  min-width: 0;
+  text-align: left;
+  font-size: 13px;
 }
 /* H/S/L row stacked over the metamer slider — the "double-stack" the controls ask for. */
 .selected-controls {
@@ -517,6 +530,7 @@ input[type="color"] {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  justify-content: space-between;
 }
 .selected-controls .hsl-group {
   justify-content: space-between;

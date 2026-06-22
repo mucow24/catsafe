@@ -461,13 +461,19 @@ function EntryRow(props: {
 function SelectedColorBar(props: {
   entry: Entry | null;
   label: string;
+  bg: string;
+  minContrast: number;
   onEdit: (id: string, color: string, coalesceKey?: string) => void;
 }) {
-  const { entry, label, onEdit } = props;
+  const { entry, label, bg, minContrast, onEdit } = props;
   // A neutral placeholder keeps the (faded, inert) controls rendered when nothing
   // is selected, so the bar holds its height instead of collapsing.
   const color = entry?.color ?? '#888888';
   const cat = catHex(color);
+  // WCAG contrast of the selected color against the map background (same as the
+  // per-row readout); reads red when it can't clear the minimum.
+  const cr = contrastRatio(color, bg);
+  const lowContrast = cr < minContrast;
 
   // Local HSL triplet for exact 0.5 nudges (same rationale as EntryRow); re-synced
   // when the color changes from outside — new selection, metamer slide, or undo.
@@ -550,25 +556,33 @@ function SelectedColorBar(props: {
         Selected color{entry && <span class="selected-code"> · line {label}</span>}
       </div>
       <div class="selected-body">
-        <div class="swatches">
-          <div
-            class="swatch interactive"
-            style={{ background: color, color: legibleTextOn(color) }}
-            onClick={() => entry && flashCopied('human', color)}
-            title="Click to copy"
-          >
-            <span class="sw-label">human</span>
-            <span class="sw-hex">{copied === 'human' ? 'copied ✓' : color}</span>
+        <div class="selected-swatch-col">
+          <div class="swatches">
+            <div
+              class="swatch interactive"
+              style={{ background: color, color: legibleTextOn(color) }}
+              onClick={() => entry && flashCopied('human', color)}
+              title="Click to copy"
+            >
+              <span class="sw-label">human</span>
+              <span class="sw-hex">{copied === 'human' ? 'copied ✓' : color}</span>
+            </div>
+            <div
+              class="swatch interactive"
+              style={{ background: cat, color: legibleTextOn(cat) }}
+              onClick={() => entry && flashCopied('cat', cat)}
+              title="Click to copy"
+            >
+              <span class="sw-label">cat</span>
+              <span class="sw-hex">{copied === 'cat' ? 'copied ✓' : cat}</span>
+            </div>
           </div>
-          <div
-            class="swatch interactive"
-            style={{ background: cat, color: legibleTextOn(cat) }}
-            onClick={() => entry && flashCopied('cat', cat)}
-            title="Click to copy"
+          <span
+            class={`contrast selected-contrast${lowContrast ? ' bad' : ''}`}
+            title="WCAG contrast vs map background"
           >
-            <span class="sw-label">cat</span>
-            <span class="sw-hex">{copied === 'cat' ? 'copied ✓' : cat}</span>
-          </div>
+            ◐ {cr.toFixed(1)}:1
+          </span>
         </div>
 
         <div class="selected-controls">
@@ -1008,6 +1022,8 @@ export function App() {
       <SelectedColorBar
         entry={selectedEntry}
         label={selectedEntry ? codeOf(selectedEntry, selIdx) : ''}
+        bg={background}
+        minContrast={minContrast}
         onEdit={onEdit}
       />
 
