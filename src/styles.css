@@ -553,7 +553,23 @@ input[type="color"] {
   justify-content: space-between;
 }
 .selected-controls .hsl-group {
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* Hex field before the H/S/L boxes in the selected-color bar. */
+.hex-input {
+  width: 84px;
+  font: 13px/1 ui-monospace, Menlo, Consolas, monospace;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 6px;
+}
+.hex-input:focus {
+  outline: none;
+  border-color: var(--accent-2);
 }
 .selected-bar .metamer-control {
   margin-top: 0;

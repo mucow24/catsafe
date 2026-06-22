@@ -568,6 +568,19 @@ function SelectedColorBar(props: {
     [],
   );
 
+  // Hex field: owns its text while focused, commits any valid hex live (coalesced into
+  // one undo step), and re-syncs to the color when it changes from outside the field.
+  const [hexDraft, setHexDraft] = useState(color);
+  const hexRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (document.activeElement !== hexRef.current) setHexDraft(color);
+  }, [color]);
+  const onHexInput = (raw: string) => {
+    setHexDraft(raw);
+    const norm = normHex(raw);
+    if (norm && entry) onEdit(entry.id, norm, `hex:${entry.id}`);
+  };
+
   return (
     <div class={`selected-bar${entry ? '' : ' empty'}`}>
       <div class="selected-head">
@@ -605,6 +618,20 @@ function SelectedColorBar(props: {
 
         <div class="selected-controls">
           <div class="hsl-group">
+            <input
+              ref={hexRef}
+              class="hex-input"
+              type="text"
+              spellcheck={false}
+              value={hexDraft}
+              disabled={!entry}
+              aria-label="Hex color"
+              onInput={(e) => onHexInput((e.target as HTMLInputElement).value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+              onBlur={() => setHexDraft(color)}
+            />
             <HslInput label="H" title="Hue (0–360°)" value={hsl.h} min={0} max={360} step={1} onChange={(h) => setChannel({ h })} />
             <HslInput label="S" title="Saturation (0–100%)" value={hsl.s} min={0} max={100} step={0.5} onChange={(s) => setChannel({ s })} />
             <HslInput label="L" title="Lightness (0–100%)" value={hsl.l} min={0} max={100} step={0.5} onChange={(l) => setChannel({ l })} />
