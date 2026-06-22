@@ -893,9 +893,53 @@ export function App() {
   // luminance so the per-pixel test is just a metamer solve; re-memoize when the
   // background, threshold, or shown metamer changes.
   const bgLum = useMemo(() => relativeLuminance(background), [background]);
+
+  // Index of the selected entry (computed here so the "too close" mask below can skip
+  // it; reused for the plot highlight and selected-color bar further down).
+  const selIdx = selectedId ? entries.findIndex((e) => e.id === selectedId) : -1;
+
+  // Two independent cat-plot dim overlays, each a checkbox in the cat plot's footer:
+  //  • "Shade too close" — dim cone-space within (min separation) of any OTHER palette
+  //    color. The selected color's own circle is skipped (you're moving it), and all
+  //    circles show when nothing is selected; so the still-bright region is exactly
+  //    where the selected color can go without shrinking the closest-pair separation.
+  //  • "Shade low contrast" — dim cone-space whose color can't meet the WCAG contrast
+  //    threshold against the map background (on by default — this was the always-on wash).
+  // The two are OR'd into one mask. Gated deps keep each free while its toggle is OFF — in
+  // particular "too close" off → closerLocs stays null, so a color edit can't flip
+  // catDimCb's identity, preserving the metamer-drag raster fix. While "too close" is ON
+  // the mask follows the colors, so a color edit re-rasters the dim layer (accepted).
+  const [shadeTooClose, setShadeTooClose] = useState(false);
+  const [shadeLowContrast, setShadeLowContrast] = useState(true);
+  const catLocs = useMemo(() => sims.map((s) => s.catXY), [sims]);
+  const catMinSep = useMemo(() => {
+    let m = Infinity;
+    for (let i = 0; i < catLocs.length; i++) {
+      for (let j = i + 1; j < catLocs.length; j++) {
+        const d = Math.hypot(catLocs[i].x - catLocs[j].x, catLocs[i].y - catLocs[j].y);
+        if (d < m) m = d;
+      }
+    }
+    return m;
+  }, [catLocs]);
+  const closerLocs = useMemo(
+    () => (!shadeTooClose ? null : selIdx >= 0 ? catLocs.filter((_, i) => i !== selIdx) : catLocs),
+    [shadeTooClose, catLocs, selIdx],
+  );
+  const closerR2 = shadeTooClose && Number.isFinite(catMinSep) ? catMinSep * catMinSep : 0;
   const catDimCb = useCallback(
-    (loc: XY) => catShadeBelowContrast(loc, metamerS, bgLum, minContrast),
-    [metamerS, bgLum, minContrast],
+    (loc: XY) => {
+      if (shadeLowContrast && catShadeBelowContrast(loc, metamerS, bgLum, minContrast)) return true;
+      if (closerR2 > 0 && closerLocs) {
+        for (const p of closerLocs) {
+          const dx = p.x - loc.x;
+          const dy = p.y - loc.y;
+          if (dx * dx + dy * dy < closerR2) return true;
+        }
+      }
+      return false;
+    },
+    [shadeLowContrast, metamerS, bgLum, minContrast, closerLocs, closerR2],
   );
 
   // Clicked spot → nearest palette color on the cat plot: the dotted line we draw
@@ -918,7 +962,6 @@ export function App() {
     setSelectedId((cur) => (cur === id ? null : id));
     setPick(null);
   };
-  const selIdx = selectedId ? entries.findIndex((e) => e.id === selectedId) : -1;
   const selectedEntry = selIdx >= 0 ? entries[selIdx] : null;
 
   return (
@@ -1067,7 +1110,7 @@ export function App() {
           onBackgroundClick={() => setSelectedId(null)}
           marker={pick?.loc ?? null}
           shade={catShadeCb}
-          dim={catDimCb}
+          dim={shadeTooClose || shadeLowContrast ? catDimCb : undefined}
           measure={nearestCat ? { to: { x: nearestCat.pt.x, y: nearestCat.pt.y }, belowMinSep: pickBelowMin } : null}
         >
           <div class="metamer-control">
@@ -1086,6 +1129,30 @@ export function App() {
               />
               <span>redder</span>
             </div>
+          </div>
+          <div class="shade-toggles">
+            <label
+              class="shade-toggle"
+              title="Dim cone-space within the palette's min separation of a color — a color placed in a dimmed (no-go) region would shrink the closest-pair separation. The selected color's own circle is skipped."
+            >
+              <input
+                type="checkbox"
+                checked={shadeTooClose}
+                onChange={(e) => setShadeTooClose((e.target as HTMLInputElement).checked)}
+              />
+              <span>Shade too close</span>
+            </label>
+            <label
+              class="shade-toggle"
+              title="Dim cone-space whose color can't meet the minimum WCAG contrast against the map background — it wouldn't be legible on the map."
+            >
+              <input
+                type="checkbox"
+                checked={shadeLowContrast}
+                onChange={(e) => setShadeLowContrast((e.target as HTMLInputElement).checked)}
+              />
+              <span>Shade low contrast</span>
+            </label>
           </div>
         </Scatter>
       </section>

@@ -478,6 +478,26 @@ input[type="color"] {
   color: var(--muted);
   margin-bottom: 6px;
 }
+/* "Shade too close" / "Shade low contrast" toggles, under the cat plot's metamer slider. */
+.shade-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.shade-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.shade-toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 
 /* --- selected-color bar --- */
 /* A full-width panel sitting between the bullet row and the plots: pick a line
