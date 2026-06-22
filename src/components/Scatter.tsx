@@ -366,8 +366,14 @@ export function Scatter({
       </svg>
       {cp && (
         <div class="scatter-stat">
-          min sep <strong>{fmt(cp.d)}{unit ? ` ${unit}` : ''}</strong> · lines {points[cp.i].label} &amp;{' '}
-          {points[cp.j].label}
+          <span class="stat-label">min separation</span>
+          <span class="stat-val">
+            {fmt(cp.d)}
+            {unit ? <span class="stat-unit"> {unit}</span> : null}
+          </span>
+          <span class="stat-lines">
+            closest pair: lines {points[cp.i].label} &amp; {points[cp.j].label}
+          </span>
         </div>
       )}
       {note && <div class="scatter-note">{note}</div>}

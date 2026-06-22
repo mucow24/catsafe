@@ -114,24 +114,68 @@ header h1 {
   border-bottom-color: var(--accent);
 }
 
-/* --- controls --- */
-.controls {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 14px;
-  margin: 22px 0 18px;
-  padding: 16px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+/* Header: palette name grows on the left, load/export sits at the right, both
+   aligned to the name input's baseline. Wraps to two lines when cramped. */
+.header-row {
+  margin-top: 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  flex-wrap: wrap;
 }
-.control label {
+.header-row .name-control {
+  margin-top: 0;
+  flex: 1 1 280px;
+}
+.exports > label {
   display: block;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
   margin-bottom: 6px;
+}
+
+/* --- toolbar --- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 18px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  margin: 0 2px;
+}
+.tb-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bg-cluster,
+.contrast-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.contrast-field input[type="range"] {
+  width: 96px;
+}
+/* Undo/redo float to the far right of the toolbar. */
+.tb-history {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 .slider-row {
   display: flex;
@@ -152,28 +196,10 @@ input[type="range"] {
   font-size: 12px;
   color: var(--text);
 }
-.bg-row,
 .export-row {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.actions {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.score-control .score {
-  font-size: 26px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  line-height: 1;
-}
-.score-control .score-sub {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 4px;
 }
 
 button {
@@ -482,15 +508,37 @@ input[type="color"] {
   opacity: 0.55;
   pointer-events: none;
 }
+/* The headline number for each plot — how far apart the two closest lines are,
+   in that plot's own units (a/b for human, ΔS for cat). Replaces the old top-bar
+   score; shown big because it's the palette's key legibility result. */
 .scatter-stat {
-  margin-top: 6px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.stat-val {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.stat-unit {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.stat-lines {
   font-size: 11px;
   color: var(--muted);
-  text-align: center;
-}
-.scatter-stat strong {
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
 }
 .scatter-note {
   margin-top: 3px;

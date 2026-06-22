@@ -28,6 +28,13 @@ const SOFT_CAP = 12;
 const COALESCE_MS = 500; // rapid same-source changes within this window = one undo step
 const MAX_HISTORY = 100;
 
+// The optimizer and palette score weight human and cat separation equally. This
+// used to be a user-facing "optimize for" slider; it's now fixed at the tool's
+// core premise — palettes that stay distinct for both. State still carries a
+// catWeight field (so older saved palettes/URLs decode), but the app drives the
+// solve and the score from this constant so the two never drift apart.
+const CAT_WEIGHT = 0.5;
+
 /** Normalize a 3- or 6-digit hex (with or without leading #) to "#rrggbb", or null. */
 function normHex(raw: string): string | null {
   let v = raw.trim().replace(/^#/, '');
@@ -438,7 +445,7 @@ export function App() {
   // A spot the user clicked in the cat plot, plus the metamer colors there.
   const [pick, setPick] = useState<{ loc: XY; screen: { x: number; y: number }; metamers: Metamer[] } | null>(null);
   const state = hist.present;
-  const { entries, catWeight, background, minContrast } = state;
+  const { entries, background, minContrast } = state;
   const name = state.name ?? ''; // legacy saved states predate this field
   const canUndo = hist.past.length > 0;
   const canRedo = hist.future.length > 0;
@@ -529,7 +536,7 @@ export function App() {
     () => entries.map((e) => ({ ...simulate(e.color), hex: e.color })),
     [entries],
   );
-  const score = useMemo(() => paletteScore(sims, catWeight), [sims, catWeight]);
+  const score = useMemo(() => paletteScore(sims, CAT_WEIGHT), [sims]);
   const [wi, wj] = score.worst;
 
   const update = (patch: Partial<State>, key?: string) => apply((s) => ({ ...s, ...patch }), key);
@@ -567,7 +574,7 @@ export function App() {
         const colors = optimizePalette({
           anchors,
           freeCount,
-          catWeight: s.catWeight,
+          catWeight: CAT_WEIGHT,
           background: s.background,
           minContrast: s.minContrast,
         });
@@ -686,143 +693,86 @@ export function App() {
         <p class="tagline">
           Transit-line color palettes that stay distinct for humans <em>and</em> cats.
         </p>
-        <div class="name-control">
-          <label for="palette-name">Palette name</label>
-          <input
-            id="palette-name"
-            class="palette-name"
-            type="text"
-            value={name}
-            spellcheck={false}
-            maxLength={60}
-            placeholder="Untitled palette"
-            aria-label="Palette name"
-            onInput={(e) => update({ name: (e.target as HTMLInputElement).value }, 'name')}
-          />
+        <div class="header-row">
+          <div class="name-control">
+            <label for="palette-name">Palette name</label>
+            <input
+              id="palette-name"
+              class="palette-name"
+              type="text"
+              value={name}
+              spellcheck={false}
+              maxLength={60}
+              placeholder="Untitled palette"
+              aria-label="Palette name"
+              onInput={(e) => update({ name: (e.target as HTMLInputElement).value }, 'name')}
+            />
+          </div>
+          <div class="exports">
+            <label>Load / export</label>
+            <div class="export-row">
+              <button class="mini" onClick={openLoad}>
+                load…
+              </button>
+              <span class="export-sep" />
+              <button class="mini" onClick={exportHex}>
+                hex
+              </button>
+              <button class="mini" onClick={exportCss}>
+                css
+              </button>
+              <button class="mini" onClick={exportJson}>
+                json
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
-      <section class="controls">
-        <div class="control slider-control">
-          <label>Optimize for</label>
-          <div class="slider-row">
-            <span>Human</span>
+      <section class="toolbar">
+        <button class="primary" disabled={busy} onClick={recompute}>
+          {busy ? 'Computing…' : '↻ Recompute'}
+        </button>
+        <button onClick={onAdd} disabled={entries.length >= MAX_ENTRIES}>
+          + Add line
+        </button>
+
+        <span class="toolbar-sep" />
+
+        <div class="bg-cluster">
+          <span class="tb-label">Map bg</span>
+          <input
+            type="color"
+            value={background}
+            onInput={(e) => update({ background: (e.target as HTMLInputElement).value }, 'bg')}
+          />
+          <button class="mini" onClick={() => update({ background: '#ffffff' })}>
+            white
+          </button>
+          <button class="mini" onClick={() => update({ background: '#111317' })}>
+            dark
+          </button>
+          <label class="contrast-field" title="Minimum WCAG contrast colors must keep against the map background">
+            <span class="tb-label">contrast {minContrast.toFixed(1)}:1</span>
             <input
               type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={catWeight}
-              onInput={(e) => update({ catWeight: parseFloat((e.target as HTMLInputElement).value) }, 'slider:w')}
+              min="1"
+              max="7"
+              step="0.5"
+              value={minContrast}
+              onInput={(e) => update({ minContrast: parseFloat((e.target as HTMLInputElement).value) }, 'slider:contrast')}
             />
-            <span>Cat</span>
-          </div>
-          <div class="slider-val">
-            {Math.round((1 - catWeight) * 100)}% human · {Math.round(catWeight * 100)}% cat
-          </div>
+          </label>
         </div>
 
-        <div class="control">
-          <label>Map background</label>
-          <div class="bg-row">
-            <input
-              type="color"
-              value={background}
-              onInput={(e) => update({ background: (e.target as HTMLInputElement).value }, 'bg')}
-            />
-            <button class="mini" onClick={() => update({ background: '#ffffff' })}>
-              white
-            </button>
-            <button class="mini" onClick={() => update({ background: '#111317' })}>
-              dark
-            </button>
-          </div>
-        </div>
-
-        <div class="control">
-          <label>Min contrast: {minContrast.toFixed(1)}:1</label>
-          <input
-            type="range"
-            min="1"
-            max="7"
-            step="0.5"
-            value={minContrast}
-            onInput={(e) => update({ minContrast: parseFloat((e.target as HTMLInputElement).value) }, 'slider:contrast')}
-          />
-        </div>
-
-        <div class="control score-control">
-          <label>Min separation (ΔS, JND)</label>
-          <div class="score">{score.min === Infinity ? '—' : score.min.toFixed(1)}</div>
-          <div class="score-sub">
-            {wi >= 0 ? `worst pair: lines ${codeOf(entries[wi], wi)} & ${codeOf(entries[wj], wj)}` : 'add 2+ colors'}
-          </div>
-        </div>
-
-        <div class="control actions">
-          <button class="primary" disabled={busy} onClick={recompute}>
-            {busy ? 'Computing…' : '↻ Recompute'}
+        <div class="tb-history">
+          <button class="mini" disabled={!canUndo} onClick={undo} title="Undo (Ctrl+Z)">
+            ↶ undo
           </button>
-          <button onClick={onAdd} disabled={entries.length >= MAX_ENTRIES}>
-            + Add line
+          <button class="mini" disabled={!canRedo} onClick={redo} title="Redo (Ctrl+Shift+Z)">
+            ↷ redo
           </button>
         </div>
-
-        <div class="control exports">
-          <label>Load / export</label>
-          <div class="export-row">
-            <button class="mini" onClick={openLoad}>
-              load…
-            </button>
-            <span class="export-sep" />
-            <button class="mini" onClick={exportHex}>
-              hex
-            </button>
-            <button class="mini" onClick={exportCss}>
-              css
-            </button>
-            <button class="mini" onClick={exportJson}>
-              json
-            </button>
-          </div>
-        </div>
-
-        <div class="control">
-          <label>History</label>
-          <div class="export-row">
-            <button class="mini" disabled={!canUndo} onClick={undo} title="Undo (Ctrl+Z)">
-              ↶ undo
-            </button>
-            <button class="mini" disabled={!canRedo} onClick={redo} title="Redo (Ctrl+Shift+Z)">
-              ↷ redo
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {entries.length > SOFT_CAP && (
-        <div class="warn">
-          Beyond ~{SOFT_CAP} lines, even normal vision struggles to tell colors apart — and a cat's single
-          color axis makes it much harder. Consider line letters or dashes as a backup code.
-        </div>
-      )}
-
-      <section class="palette">
-        {entries.map((e, i) => (
-          <EntryRow
-            key={e.id}
-            entry={e}
-            index={i}
-            bg={background}
-            minContrast={minContrast}
-            isWorst={i === wi || i === wj}
-            onEdit={onEdit}
-            onCode={onCode}
-            onToggleLock={onToggleLock}
-            onRemove={onRemove}
-          />
-        ))}
-        {entries.length === 0 && <div class="empty">No colors yet — add a line.</div>}
       </section>
 
       <section class="scatter-pair">
@@ -871,6 +821,31 @@ export function App() {
           can't tell apart; 0 and 1 are that spot's own gamut ends along the red↔green axis cats are blind to.
         </div>
       </div>
+
+      {entries.length > SOFT_CAP && (
+        <div class="warn">
+          Beyond ~{SOFT_CAP} lines, even normal vision struggles to tell colors apart — and a cat's single
+          color axis makes it much harder. Consider line letters or dashes as a backup code.
+        </div>
+      )}
+
+      <section class="palette">
+        {entries.map((e, i) => (
+          <EntryRow
+            key={e.id}
+            entry={e}
+            index={i}
+            bg={background}
+            minContrast={minContrast}
+            isWorst={i === wi || i === wj}
+            onEdit={onEdit}
+            onCode={onCode}
+            onToggleLock={onToggleLock}
+            onRemove={onRemove}
+          />
+        ))}
+        {entries.length === 0 && <div class="empty">No colors yet — add a line.</div>}
+      </section>
 
       {pick && (
         <MetamerPopup
