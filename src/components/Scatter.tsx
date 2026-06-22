@@ -1,4 +1,4 @@
-import { useId, useState } from 'preact/hooks';
+import { useEffect, useId, useState } from 'preact/hooks';
 import { labelColor, type XY } from '../color';
 
 export type Pt = { x: number; y: number; fill: string; label: string; humanHex: string; catHex: string };
@@ -32,6 +32,7 @@ export function Scatter({
   marker,
   measure,
   hint,
+  shade,
 }: {
   title: string;
   points: Pt[];
@@ -41,6 +42,10 @@ export function Scatter({
   /** Closed polygon (in plot coords) bounding the human-visible region; the area
    *  inside the plot box but outside it is shaded as unreachable. */
   gamutBoundary?: XY[];
+  /** Optional per-coordinate fill: maps a plot-space location to an [r,g,b] (0–255)
+   *  color, or null where nothing should be drawn. Rendered as a raster layer behind
+   *  the dots. Memoize it — a new identity re-renders the raster. */
+  shade?: (loc: XY) => readonly [number, number, number] | null;
   /** Small caption under the plot (e.g. to explain the shading). */
   note?: string;
   /** If set, clicking the plot reports the clicked data location plus the
@@ -56,8 +61,10 @@ export function Scatter({
   hint?: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
+  const [shadeUrl, setShadeUrl] = useState<string | null>(null);
   const clipId = useId();
   const hatchId = useId();
+  const gamutClipId = useId();
   const S = 240;
   const M = { l: 24, r: 10, t: 10, b: 22 };
   const boxW = S - M.l - M.r;
@@ -83,6 +90,50 @@ export function Scatter({
   const scale = plot / (2 * half);
   const sx = (x: number) => ox + plot / 2 + (x - cxD) * scale;
   const sy = (y: number) => oy + plot / 2 - (y - cyD) * scale;
+
+  // Raster the `shade` fill into a data-URL once per (geometry, shade) change, then
+  // draw it as one <image> that scales with the SVG. A modest internal resolution is
+  // plenty — the field is smooth and the vector gamut hatch redraws the crisp edge on
+  // top. Bypasses the discrete catMetamers path: here we want a continuous color.
+  useEffect(() => {
+    if (!shade) {
+      setShadeUrl(null);
+      return;
+    }
+    const RES = 200;
+    const cv = document.createElement('canvas');
+    cv.width = RES;
+    cv.height = RES;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    const img = ctx.createImageData(RES, RES);
+    const data = img.data;
+    for (let j = 0; j < RES; j++) {
+      const vy = oy + ((j + 0.5) / RES) * plot;
+      const y = cyD - (vy - oy - plot / 2) / scale;
+      for (let i = 0; i < RES; i++) {
+        const vx = ox + ((i + 0.5) / RES) * plot;
+        const x = cxD + (vx - ox - plot / 2) / scale;
+        const rgb = shade({ x, y });
+        const o = (j * RES + i) * 4;
+        if (rgb) {
+          data[o] = rgb[0];
+          data[o + 1] = rgb[1];
+          data[o + 2] = rgb[2];
+          data[o + 3] = 255;
+        }
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    setShadeUrl(cv.toDataURL());
+  }, [shade, ox, oy, plot, scale, cxD, cyD]);
+
+  // Polygon tracing the in-gamut region (plot coords). Reused to clip the shade
+  // layer to a crisp vector edge and to punch the out-of-gamut hatch.
+  const hasGamut = !!(gamutBoundary && gamutBoundary.length > 2);
+  const gamutPath = hasGamut
+    ? gamutBoundary!.map((p, i) => `${i ? 'L' : 'M'}${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`).join('') + 'Z'
+    : '';
 
   const showVAxis = sx(0) >= ox && sx(0) <= ox + plot;
   const showHAxis = sy(0) >= oy && sy(0) <= oy + plot;
@@ -133,7 +184,7 @@ export function Scatter({
           <clipPath id={clipId}>
             <rect x={ox} y={oy} width={plot} height={plot} rx="6" />
           </clipPath>
-          {gamutBoundary && gamutBoundary.length > 2 && (
+          {hasGamut && (
             // Diagonal hatch marking the unreachable region.
             <pattern
               id={hatchId}
@@ -146,9 +197,27 @@ export function Scatter({
               <line x1="0" y1="0" x2="0" y2="7" class="oog-line" />
             </pattern>
           )}
+          {hasGamut && (
+            // Clip the shade layer to the in-gamut polygon, so its edge is vector-
+            // crisp and meets the hatch exactly instead of leaving a raster fringe.
+            <clipPath id={gamutClipId}>
+              <path d={gamutPath} />
+            </clipPath>
+          )}
         </defs>
         <rect x={ox} y={oy} width={plot} height={plot} class="scatter-bg" rx="6" />
-        {gamutBoundary && gamutBoundary.length > 2 && (
+        {shadeUrl && (
+          <image
+            href={shadeUrl}
+            x={ox}
+            y={oy}
+            width={plot}
+            height={plot}
+            preserveAspectRatio="none"
+            clip-path={`url(#${hasGamut ? gamutClipId : clipId})`}
+          />
+        )}
+        {hasGamut && (
           // Fill the plot box, then punch out the in-gamut polygon (even-odd), so
           // only cone-space coordinates no sRGB color can reach stay hatched.
           <path
@@ -156,13 +225,7 @@ export function Scatter({
             clip-path={`url(#${clipId})`}
             fill={`url(#${hatchId})`}
             fill-rule="evenodd"
-            d={
-              `M${ox} ${oy}H${ox + plot}V${oy + plot}H${ox}Z` +
-              gamutBoundary
-                .map((p, i) => `${i ? 'L' : 'M'}${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`)
-                .join('') +
-              'Z'
-            }
+            d={`M${ox} ${oy}H${ox + plot}V${oy + plot}H${ox}Z` + gamutPath}
           />
         )}
         {showVAxis && <line x1={sx(0)} y1={oy} x2={sx(0)} y2={oy + plot} class="axis" />}

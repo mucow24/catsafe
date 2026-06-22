@@ -207,14 +207,25 @@ const dot3 = (u: readonly number[], v: readonly number[]) => u[0] * v[0] + u[1] 
 // can perceive, so any two survivors are <2× this apart — still indistinguishable.
 const METAMER_TOL = 0.4;
 
-/**
- * Human sRGB colors that all map to the given cat RNL location (its metamer set),
- * sampled evenly along the in-gamut segment of the metamer line. Returns `[]`
- * when the location lies outside the sRGB gamut (no color reaches it). Each
- * `cat` field is that color's illustrative cat rendering, so a caller can show
- * the single appearance the whole set shares.
- */
-export function catMetamers(loc: XY, count = 8): Metamer[] {
+// The metamer line's direction is the SAME everywhere on the plot: d = (L-row) ×
+// (S-row), perpendicular to both cat cone-row normals, so sliding along it never
+// changes either cat cone catch. Numerically d ≈ [+R, −G, +tiny B] and it lowers
+// the human M catch — so +d is the "redder" end and −d the "greener" end at every
+// spot, tracing the red↔green (L–M) axis a cat is blind to. Constant → compute once.
+const MET_D = [
+  RGB_TO_LMS[0][1] * RGB_TO_LMS[2][2] - RGB_TO_LMS[0][2] * RGB_TO_LMS[2][1],
+  RGB_TO_LMS[0][2] * RGB_TO_LMS[2][0] - RGB_TO_LMS[0][0] * RGB_TO_LMS[2][2],
+  RGB_TO_LMS[0][0] * RGB_TO_LMS[2][1] - RGB_TO_LMS[0][1] * RGB_TO_LMS[2][0],
+] as const;
+
+/** The metamer line for a cat RNL location: every linear-sRGB color `v0 + t·MET_D`
+ *  with `t ∈ [tmin, tmax]` shares this spot's two cat cone catches and stays inside
+ *  the sRGB gamut. `null` when the spot is out of gamut (no sRGB color reaches it). */
+export type MetamerLine = { v0: [number, number, number]; tmin: number; tmax: number };
+
+/** Solve the in-gamut metamer segment at a cat RNL location. The shared geometry
+ *  behind both the click-to-inspect set and the plot shading. */
+export function metamerLine(loc: XY): MetamerLine | null {
   const A = RGB_TO_LMS[0]; // L-cone row
   const C = RGB_TO_LMS[2]; // S-cone row
   // Invert catSpace to recover the target cone catches, then their L/S values.
@@ -223,14 +234,17 @@ export function catMetamers(loc: XY, count = 8): Metamer[] {
   const Lt = Math.max(0, Math.exp(fL) - EPS) * WHITE_L;
   const St = Math.max(0, Math.exp(fS) - EPS) * WHITE_S;
 
-  // Minimum-norm particular solution v0 = α·A + β·C (solve the 2×2 Gram system),
-  // and the line direction d = A × C (perpendicular to both cone-row normals).
+  // Minimum-norm particular solution v0 = α·A + β·C (solve the 2×2 Gram system);
+  // the line direction is the constant MET_D = A × C.
   const aa = dot3(A, A), ac = dot3(A, C), cc = dot3(C, C);
   const det = aa * cc - ac * ac;
   const alpha = (cc * Lt - ac * St) / det;
   const beta = (aa * St - ac * Lt) / det;
-  const v0 = [alpha * A[0] + beta * C[0], alpha * A[1] + beta * C[1], alpha * A[2] + beta * C[2]];
-  const d = [A[1] * C[2] - A[2] * C[1], A[2] * C[0] - A[0] * C[2], A[0] * C[1] - A[1] * C[0]];
+  const v0: [number, number, number] = [
+    alpha * A[0] + beta * C[0],
+    alpha * A[1] + beta * C[1],
+    alpha * A[2] + beta * C[2],
+  ];
 
   // Clip the line to [0,1]^3 with the slab method. A hair of slack keeps
   // boundary-only sets (e.g. white, whose only metamer is itself) from collapsing
@@ -238,17 +252,32 @@ export function catMetamers(loc: XY, count = 8): Metamer[] {
   const SLACK = 1e-6;
   let tmin = -Infinity, tmax = Infinity;
   for (let i = 0; i < 3; i++) {
-    if (Math.abs(d[i]) < 1e-12) {
-      if (v0[i] < -SLACK || v0[i] > 1 + SLACK) return []; // line parallel to & outside this face
+    if (Math.abs(MET_D[i]) < 1e-12) {
+      if (v0[i] < -SLACK || v0[i] > 1 + SLACK) return null; // parallel to & outside this face
     } else {
-      let t0 = (-SLACK - v0[i]) / d[i];
-      let t1 = (1 + SLACK - v0[i]) / d[i];
+      let t0 = (-SLACK - v0[i]) / MET_D[i];
+      let t1 = (1 + SLACK - v0[i]) / MET_D[i];
       if (t0 > t1) { const s = t0; t0 = t1; t1 = s; }
       if (t0 > tmin) tmin = t0;
       if (t1 < tmax) tmax = t1;
     }
   }
-  if (tmin > tmax) return []; // out of gamut
+  if (tmin > tmax) return null; // out of gamut
+  return { v0, tmin, tmax };
+}
+
+/**
+ * Human sRGB colors that all map to the given cat RNL location (its metamer set),
+ * sampled evenly along the in-gamut segment of the metamer line. Returns `[]`
+ * when the location lies outside the sRGB gamut (no color reaches it). Each
+ * `cat` field is that color's illustrative cat rendering, so a caller can show
+ * the single appearance the whole set shares.
+ */
+export function catMetamers(loc: XY, count = 8): Metamer[] {
+  const line = metamerLine(loc);
+  if (!line) return []; // out of gamut
+  const { v0, tmin, tmax } = line;
+  const d = MET_D;
 
   // The continuous line is exact, but we can only return 8-bit hex colors. The
   // luminance axis is logarithmic, so near black one LSB is a large ΔS: a naive
@@ -285,6 +314,33 @@ export function catMetamers(loc: XY, count = 8): Metamer[] {
     }
   }
   return out;
+}
+
+// Shading the plot evaluates one metamer color per pixel, so the linear→sRGB step
+// runs through a small LUT to keep a Math.pow off every channel of every pixel.
+const SHADE_LUT_N = 1024;
+const SHADE_LUT = (() => {
+  const a = new Uint8Array(SHADE_LUT_N + 1);
+  for (let i = 0; i <= SHADE_LUT_N; i++) a[i] = Math.round(clamp01(linearToSrgb(i / SHADE_LUT_N)) * 255);
+  return a;
+})();
+
+/** The human sRGB color at parameter `s ∈ [0,1]` along a metamer line, as [r,g,b]
+ *  bytes. Per-spot relative: s=0 is this spot's −d (greener) gamut end, s=1 its +d
+ *  (redder) end, so every spot sweeps its own full in-gamut spread. */
+export function metamerSample(line: MetamerLine, s: number): [number, number, number] {
+  const t = line.tmin + clamp01(s) * (line.tmax - line.tmin);
+  const r = clamp01(line.v0[0] + t * MET_D[0]) * SHADE_LUT_N;
+  const g = clamp01(line.v0[1] + t * MET_D[1]) * SHADE_LUT_N;
+  const b = clamp01(line.v0[2] + t * MET_D[2]) * SHADE_LUT_N;
+  return [SHADE_LUT[r | 0], SHADE_LUT[g | 0], SHADE_LUT[b | 0]];
+}
+
+/** Human color (as [r,g,b] bytes) at fraction `s` of the metamer spread at `loc`,
+ *  or `null` when `loc` is out of gamut. One call per shaded pixel. */
+export function catShade(loc: XY, s: number): [number, number, number] | null {
+  const line = metamerLine(loc);
+  return line ? metamerSample(line, s) : null;
 }
 
 /** Euclidean distance in OKLab. */
