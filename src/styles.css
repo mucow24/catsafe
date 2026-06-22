@@ -402,6 +402,24 @@ input[type="color"] {
 .lock.on {
   border-color: var(--accent-2);
 }
+
+/* Reorder arrows — a compact stacked pair, sized to match the row's other
+   controls without dominating them. */
+.move-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.move {
+  padding: 1px 6px;
+  line-height: 1;
+  font-size: 9px;
+  color: var(--muted);
+  border-radius: 5px;
+}
+.move:hover:not(:disabled) {
+  color: var(--text);
+}
 .empty {
   color: var(--muted);
   padding: 24px;
