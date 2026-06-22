@@ -558,6 +558,14 @@ input[type="color"] {
 .selected-bar .metamer-control {
   margin-top: 0;
 }
+/* Compact "Sync" button at the right of the selected color's metamer slider —
+   pushes the plot's shading slider to this color's metamer position. */
+.sync-btn {
+  flex: none;
+  padding: 4px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
 /* Empty state: fade the inert controls, then float a legible message on an opaque
    pill over them (plain text would read gray-on-gray against the faded swatches). */
 .selected-bar.empty .selected-body {

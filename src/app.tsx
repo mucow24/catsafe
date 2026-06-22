@@ -480,8 +480,10 @@ function SelectedColorBar(props: {
   bg: string;
   minContrast: number;
   onEdit: (id: string, color: string, coalesceKey?: string) => void;
+  /** "Sync" the cat plot's metamer-shading slider to this color's metamer position. */
+  onSyncMetamer: (pos: number) => void;
 }) {
-  const { entry, label, bg, minContrast, onEdit } = props;
+  const { entry, label, bg, minContrast, onEdit, onSyncMetamer } = props;
   // A neutral placeholder keeps the (faded, inert) controls rendered when nothing
   // is selected, so the bar holds its height instead of collapsing.
   const color = entry?.color ?? '#888888';
@@ -624,6 +626,14 @@ function SelectedColorBar(props: {
                 onInput={(e) => setMeta(parseFloat((e.target as HTMLInputElement).value))}
               />
               <span>redder</span>
+              <button
+                class="mini sync-btn"
+                disabled={!entry || metaRange < 1e-4}
+                title="Set the cat plot's metamer-shading slider to this color's metamer position"
+                onClick={() => onSyncMetamer(metaRef.current ? parseFloat(metaRef.current.value) : metaPos)}
+              >
+                Sync
+              </button>
             </div>
           </div>
         </div>
@@ -1084,6 +1094,7 @@ export function App() {
         bg={background}
         minContrast={minContrast}
         onEdit={onEdit}
+        onSyncMetamer={setMetamerS}
       />
 
       <section class="scatter-pair">
