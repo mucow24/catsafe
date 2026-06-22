@@ -16,7 +16,7 @@ import {
   type XY,
 } from './color';
 import { optimizePalette } from './optimize';
-import { Scatter } from './components/Scatter';
+import { Scatter, closestPair, type Pt } from './components/Scatter';
 import { MetamerPopup } from './components/MetamerPopup';
 import type { Entry, State } from './types';
 
@@ -70,6 +70,17 @@ function parsePalette(text: string): ParsedPalette {
     if (h) out.push({ color: h, locked: false });
   }
   return { name: null, colors: out };
+}
+
+/** Nearest plotted point to a data-space location, with its distance (the cat
+ *  plot's coords are RNL, so this distance is a ΔS). */
+function nearestPoint(loc: XY, pts: Pt[]): { pt: Pt; d: number } | null {
+  let best: { pt: Pt; d: number } | null = null;
+  for (const p of pts) {
+    const d = Math.hypot(loc.x - p.x, loc.y - p.y);
+    if (!best || d < best.d) best = { pt: p, d };
+  }
+  return best;
 }
 
 const uid = () =>
@@ -634,6 +645,14 @@ export function App() {
   // The sRGB gamut's image in cat cone space — constant, so compute it once.
   const catGamut = useMemo(() => catGamutBoundary(), []);
 
+  // Clicked spot → nearest palette color on the cat plot: the dotted line we draw
+  // there and the gap shown in the popover. It reads red when that gap is below
+  // the plot's own min separation (the closest pair, same value shown under the
+  // plot) — i.e. the click sits closer to a color than the palette's tightest pair.
+  const catCp = closestPair(catPts);
+  const nearestCat = pick ? nearestPoint(pick.loc, catPts) : null;
+  const pickBelowMin = !!(nearestCat && catCp && nearestCat.d < catCp.d);
+
   // Click a spot in the cat plot to inspect every sRGB color that lands there —
   // the metamer set a cat perceives as one color (see catMetamers).
   const onPickCat = (loc: XY, screen: { x: number; y: number }) =>
@@ -803,6 +822,7 @@ export function App() {
           note="Hatched: cone-space no human-visible (sRGB) color can reach"
           onPick={onPickCat}
           marker={pick?.loc ?? null}
+          measure={nearestCat ? { to: { x: nearestCat.pt.x, y: nearestCat.pt.y }, belowMinSep: pickBelowMin } : null}
           hint="Click a spot — or tab to a line — to see the colors a cat sees there"
         />
       </section>
@@ -812,6 +832,8 @@ export function App() {
           loc={pick.loc}
           screen={pick.screen}
           metamers={pick.metamers}
+          dist={nearestCat?.d ?? null}
+          belowMinSep={pickBelowMin}
           onClose={() => setPick(null)}
         />
       )}

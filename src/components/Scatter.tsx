@@ -4,7 +4,7 @@ import { labelColor, type XY } from '../color';
 export type Pt = { x: number; y: number; fill: string; label: string; humanHex: string; catHex: string };
 
 /** Closest pair by Euclidean distance in the plotted coordinates. */
-function closestPair(points: Pt[]): { i: number; j: number; d: number } | null {
+export function closestPair(points: Pt[]): { i: number; j: number; d: number } | null {
   let best: { i: number; j: number; d: number } | null = null;
   for (let i = 0; i < points.length; i++) {
     for (let j = i + 1; j < points.length; j++) {
@@ -30,6 +30,7 @@ export function Scatter({
   note,
   onPick,
   marker,
+  measure,
   hint,
 }: {
   title: string;
@@ -47,6 +48,10 @@ export function Scatter({
   onPick?: (loc: XY, screen: { x: number; y: number }) => void;
   /** Data-space location to draw a crosshair at (e.g. the last picked spot). */
   marker?: XY | null;
+  /** Optional dotted line from `marker` to a target point (the nearest palette
+   *  color). `belowMinSep` true → the gap is tighter than this plot's min
+   *  separation, so the line is drawn red instead of the neutral ink color. */
+  measure?: { to: XY; belowMinSep: boolean } | null;
   /** Small muted caption under the plot — e.g. a "click to inspect" hint. */
   hint?: string;
 }) {
@@ -203,6 +208,17 @@ export function Scatter({
             />
           </g>
         ))}
+        {marker && measure && (
+          <line
+            pointer-events="none"
+            clip-path={`url(#${clipId})`}
+            class={`measure-link ${measure.belowMinSep ? 'under' : 'over'}`}
+            x1={sx(marker.x)}
+            y1={sy(marker.y)}
+            x2={sx(measure.to.x)}
+            y2={sy(measure.to.y)}
+          />
+        )}
         {marker && (
           <g pointer-events="none" class="pick-marker" clip-path={`url(#${clipId})`}>
             <circle cx={sx(marker.x)} cy={sy(marker.y)} r="7.5" class="pick-ring" />
