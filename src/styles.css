@@ -410,6 +410,50 @@ input[type="color"] {
   text-align: center;
 }
 
+/* --- subway-bullet row --- */
+/* One circular, transit-style bullet per palette color, in order, lettered with
+   its service code. Clicking selects that line (same as clicking its plot dot). */
+.bullet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.bullet {
+  width: 35px;
+  height: 35px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 16px/1 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  transition: box-shadow 0.12s;
+}
+.bullet:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.bullet:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* Selected bullet gets a steady ring, matching the selected dot in the plots. */
+.bullet.selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.bullet-empty {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 /* --- scatter plots --- */
 .scatter-pair {
   display: grid;
@@ -435,13 +479,11 @@ input[type="color"] {
 }
 
 /* --- selected-color bar --- */
-/* Spans both plot columns so it reads as part of the plots group, directly below
-   them; the .scatter-pair margin-bottom then separates it from the palette. */
-.scatter-pair .selected-bar {
-  grid-column: 1 / -1;
-}
+/* A full-width panel sitting between the bullet row and the plots: pick a line
+   (bullet or plot dot), edit it here. */
 .selected-bar {
   position: relative;
+  margin-bottom: 24px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);

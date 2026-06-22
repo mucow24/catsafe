@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useId, useState } from 'preact/hooks';
-import { labelColor, type XY } from '../color';
+import { legibleTextOn, type XY } from '../color';
 
 export type Pt = { x: number; y: number; fill: string; label: string; humanHex: string; catHex: string };
 
@@ -334,7 +334,7 @@ export function Scatter({
               x={sx(p.x)}
               y={sy(p.y)}
               class="pt-label"
-              fill={labelColor(p.fill)}
+              fill={legibleTextOn(p.fill)}
               text-anchor="middle"
               dominant-baseline="central"
             >

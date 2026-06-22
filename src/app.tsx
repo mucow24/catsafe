@@ -10,7 +10,7 @@ import {
   hexToHsl,
   hslToHex,
   isLightBackground,
-  labelColor,
+  legibleTextOn,
   metamerColorAt,
   metamerLine,
   metamerPosition,
@@ -353,7 +353,7 @@ function EntryRow(props: {
       <div class="swatches">
         <div
           class="swatch interactive"
-          style={{ background: entry.color, color: labelColor(entry.color) }}
+          style={{ background: entry.color, color: legibleTextOn(entry.color) }}
           onClick={onHumanClick}
           onDblClick={onHumanDblClick}
           title="Click to copy · double-click to edit"
@@ -384,7 +384,7 @@ function EntryRow(props: {
         </div>
         <div
           class="swatch interactive"
-          style={{ background: cat, color: labelColor(cat) }}
+          style={{ background: cat, color: legibleTextOn(cat) }}
           onClick={() => flashCopied('cat', cat)}
           title="Click to copy"
         >
@@ -538,7 +538,7 @@ function SelectedColorBar(props: {
         <div class="swatches">
           <div
             class="swatch interactive"
-            style={{ background: color, color: labelColor(color) }}
+            style={{ background: color, color: legibleTextOn(color) }}
             onClick={() => entry && flashCopied('human', color)}
             title="Click to copy"
           >
@@ -547,7 +547,7 @@ function SelectedColorBar(props: {
           </div>
           <div
             class="swatch interactive"
-            style={{ background: cat, color: labelColor(cat) }}
+            style={{ background: cat, color: legibleTextOn(cat) }}
             onClick={() => entry && flashCopied('cat', cat)}
             title="Click to copy"
           >
@@ -948,6 +948,29 @@ export function App() {
         </div>
       </section>
 
+      <div class="bullet-row" role="group" aria-label="Palette colors — click a bullet to select that line">
+        {entries.map((e, i) => (
+          <button
+            key={e.id}
+            class={`bullet${selIdx === i ? ' selected' : ''}`}
+            style={{ background: e.color, color: legibleTextOn(e.color) }}
+            title={`Line ${codeOf(e, i)} · ${e.color}`}
+            aria-label={`Select line ${codeOf(e, i)}`}
+            aria-pressed={selIdx === i}
+            onClick={() => selectEntry(e.id)}
+          >
+            {codeOf(e, i)}
+          </button>
+        ))}
+        {entries.length === 0 && <span class="bullet-empty">No colors yet.</span>}
+      </div>
+
+      <SelectedColorBar
+        entry={selectedEntry}
+        label={selectedEntry ? codeOf(selectedEntry, selIdx) : ''}
+        onEdit={onEdit}
+      />
+
       <section class="scatter-pair">
         <Scatter
           title="Human — OKLab chroma"
@@ -993,12 +1016,6 @@ export function App() {
             </div>
           </div>
         </Scatter>
-
-        <SelectedColorBar
-          entry={selectedEntry}
-          label={selectedEntry ? codeOf(selectedEntry, selIdx) : ''}
-          onEdit={onEdit}
-        />
       </section>
 
       {entries.length > SOFT_CAP && (

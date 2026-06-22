@@ -456,9 +456,13 @@ export function contrastRatio(hex: string, bg: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Black or white, whichever reads better as a label on top of `hex`. */
-export function labelColor(hex: string): string {
-  return contrastRatio(hex, '#000000') >= contrastRatio(hex, '#ffffff') ? '#ffffff' : '#000000';
+/** Black or white text, whichever stays legible on background `hex`. Ported from
+ *  massimo's `legibleTextOn`: WCAG relative luminance with a 0.5 split — a light
+ *  background (L > 0.5) takes black text, a dark one takes white. (The previous
+ *  `labelColor` compared contrast-vs-black against contrast-vs-white and returned
+ *  the *worse* of the two, i.e. it was inverted — the worst-case label.) */
+export function legibleTextOn(hex: string): string {
+  return relativeLuminance(hex) > 0.5 ? '#000000' : '#ffffff';
 }
 
 /** True if `hex` is a light background — i.e. a map color the page should mirror. */
