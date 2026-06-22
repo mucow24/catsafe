@@ -150,12 +150,28 @@ export function Scatter({
   const sx = (x: number) => ox + plot / 2 + (x - cxD) * scale;
   const sy = (y: number) => oy + plot / 2 - (y - cyD) * scale;
 
+  // Geometry the shade/dim raster keys off, snapped to a coarse grid (~3 raster px
+  // for the center, 2 sig figs for the zoom). Editing the selected color via the
+  // metamer slider nudges its dot — and thus this autoscaled geometry — by a
+  // sub-pixel, sub-JND amount every step; keyed on the raw floats, each step would
+  // re-run the expensive per-pixel raster (a metamer solve per pixel + toDataURL).
+  // The dots, gamut and axes still use the exact geometry above, and the shade is a
+  // smooth field clipped to the exact gamut, so the ≤~2px content shift this snap
+  // introduces is invisible — while the key holds steady through the jitter. Effects
+  // depend on the integer cells (stable), not the float products (whose grid jitters).
+  const gx = half / 32;
+  const cellX = Math.round(cxD / gx);
+  const cellY = Math.round(cyD / gx);
+  const rScale = plot / (2 * Number(half.toPrecision(2)));
+  const rCxD = cellX * gx;
+  const rCyD = cellY * gx;
+
   // Raster the `shade` fill into a data-URL once per (geometry, shade) change. Bypasses
   // the discrete catMetamers path: here we want a continuous color per pixel.
   useEffect(() => {
     setShadeUrl(
       shade
-        ? rasterField({ ox, oy, plot, scale, cxD, cyD }, (x, y, data, o) => {
+        ? rasterField({ ox, oy, plot, scale: rScale, cxD: rCxD, cyD: rCyD }, (x, y, data, o) => {
             const rgb = shade({ x, y });
             if (rgb) {
               data[o] = rgb[0];
@@ -166,7 +182,7 @@ export function Scatter({
           })
         : null,
     );
-  }, [shade, ox, oy, plot, scale, cxD, cyD]);
+  }, [shade, ox, oy, plot, rScale, cellX, cellY]);
 
   // Raster the `dim` mask as opaque white where the spot is shaded out, transparent
   // elsewhere; an SVG <mask> then paints the themed wash through it. Re-renders when
@@ -174,14 +190,14 @@ export function Scatter({
   useEffect(() => {
     setDimUrl(
       dim
-        ? rasterField({ ox, oy, plot, scale, cxD, cyD }, (x, y, data, o) => {
+        ? rasterField({ ox, oy, plot, scale: rScale, cxD: rCxD, cyD: rCyD }, (x, y, data, o) => {
             if (dim({ x, y })) {
               data[o] = data[o + 1] = data[o + 2] = data[o + 3] = 255;
             }
           })
         : null,
     );
-  }, [dim, ox, oy, plot, scale, cxD, cyD]);
+  }, [dim, ox, oy, plot, rScale, cellX, cellY]);
 
   // Polygon tracing the in-gamut region (plot coords). Reused to clip the shade
   // layer to a crisp vector edge and to punch the out-of-gamut hatch.
