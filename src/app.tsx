@@ -5,15 +5,20 @@ import {
   catMetamers,
   catShade,
   catShadeBelowContrast,
+  catSpace,
   contrastRatio,
   hexToHsl,
   hslToHex,
   isLightBackground,
   labelColor,
+  metamerColorAt,
+  metamerLine,
+  metamerPosition,
   paletteScore,
   relativeLuminance,
   simulate,
   type Hsl,
+  type MetamerLine,
   type Metamer,
   type Sim,
   type XY,
@@ -432,6 +437,161 @@ function EntryRow(props: {
   );
 }
 
+// --- selected-color bar ------------------------------------------------------
+
+/** Edit controls for the dot the user clicked in either plot. A trimmed EntryRow:
+ *  the same human/cat swatches and H/S/L fields, plus a metamer slider that moves
+ *  the color along the red↔green axis a cat can't see (cat color held constant).
+ *  No lock/remove. Faded with a "no selection" message when nothing is selected. */
+function SelectedColorBar(props: {
+  entry: Entry | null;
+  label: string;
+  onEdit: (id: string, color: string, coalesceKey?: string) => void;
+}) {
+  const { entry, label, onEdit } = props;
+  // A neutral placeholder keeps the (faded, inert) controls rendered when nothing
+  // is selected, so the bar holds its height instead of collapsing.
+  const color = entry?.color ?? '#888888';
+  const cat = catHex(color);
+
+  // Local HSL triplet for exact 0.5 nudges (same rationale as EntryRow); re-synced
+  // when the color changes from outside — new selection, metamer slide, or undo.
+  const [hsl, setHsl] = useState<Hsl>(() => hexToHsl(color));
+  const lastEmitted = useRef(color);
+  useEffect(() => {
+    if (color !== lastEmitted.current) {
+      setHsl(hexToHsl(color));
+      lastEmitted.current = color;
+    }
+  }, [color]);
+  const setChannel = (patch: Partial<Hsl>) => {
+    if (!entry) return;
+    const next = { ...hsl, ...patch };
+    setHsl(next);
+    const hex = hslToHex(next);
+    lastEmitted.current = hex;
+    onEdit(entry.id, hex, `hsl:${entry.id}`);
+  };
+
+  // The in-gamut metamer segment through this color's cat location. Sliding it
+  // rewrites the human color along MET_D while the two cat cone catches — and so
+  // the cat dot's position — stay put.
+  //
+  // The line is ANCHORED in a ref, not re-derived from `color` every render. A
+  // committed color is 8-bit quantized, so catSpace(hex) lands a hair off the line;
+  // re-deriving from it each drag step would let the line — and the cat dot — drift
+  // cumulatively (loc += ε every commit), meandering badly on slow drags and
+  // stalling once the wander clamps into the gamut edge (line → null). With a fixed
+  // line, each commit is a single bounded error off loc, never accumulating. We
+  // re-anchor only when `color` changes for a reason OTHER than our own metamer
+  // commit — new selection, H/S/L edit, undo, recompute — tracked via metaCommitted.
+  const metaCommitted = useRef<string | null>(null);
+  const metaAnchor = useRef<{ src: string; line: MetamerLine | null }>({ src: '', line: null });
+  if (metaAnchor.current.src !== color && color !== metaCommitted.current) {
+    metaAnchor.current = { src: color, line: metamerLine(catSpace(color)) };
+    metaCommitted.current = null;
+  }
+  const line = metaAnchor.current.line;
+  // Degenerate (e.g. near-black, where 8-bit resolves no spread) → disable the slider.
+  const metaRange = line ? line.tmax - line.tmin : 0;
+  const metaPos = line ? metamerPosition(line, color) : 0.5;
+  const setMeta = (s: number) => {
+    if (!entry || !line) return;
+    const hex = metamerColorAt(line, s);
+    metaCommitted.current = hex;
+    // Unlike setChannel, don't mark this hex as "self-emitted" for the H/S/L sync:
+    // the fields aren't what changed, so they re-sync to the new color below.
+    onEdit(entry.id, hex, `meta:${entry.id}`);
+  };
+
+  // The thumb is uncontrolled (like HslInput) for a smooth drag: write its position
+  // imperatively when the color moves from outside the slider, but never mid-drag
+  // (skip while it's focused), so a controlled re-render can't fight the cursor.
+  const metaRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = metaRef.current;
+    if (el && document.activeElement !== el) el.value = String(metaPos);
+  }, [metaPos]);
+
+  // Click a swatch to copy its hex (matches the palette rows).
+  const [copied, setCopied] = useState<'human' | 'cat' | null>(null);
+  const copyTimer = useRef<number | null>(null);
+  const flashCopied = (which: 'human' | 'cat', hex: string) => {
+    navigator.clipboard?.writeText(hex);
+    setCopied(which);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopied(null), 1000);
+  };
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+
+  return (
+    <div class={`selected-bar${entry ? '' : ' empty'}`}>
+      <div class="selected-head">
+        Selected color{entry && <span class="selected-code"> · line {label}</span>}
+      </div>
+      <div class="selected-body">
+        <div class="swatches">
+          <div
+            class="swatch interactive"
+            style={{ background: color, color: labelColor(color) }}
+            onClick={() => entry && flashCopied('human', color)}
+            title="Click to copy"
+          >
+            <span class="sw-label">human</span>
+            <span class="sw-hex">{copied === 'human' ? 'copied ✓' : color}</span>
+          </div>
+          <div
+            class="swatch interactive"
+            style={{ background: cat, color: labelColor(cat) }}
+            onClick={() => entry && flashCopied('cat', cat)}
+            title="Click to copy"
+          >
+            <span class="sw-label">cat</span>
+            <span class="sw-hex">{copied === 'cat' ? 'copied ✓' : cat}</span>
+          </div>
+        </div>
+
+        <div class="selected-controls">
+          <div class="hsl-group">
+            <HslInput label="H" title="Hue (0–360°)" value={hsl.h} min={0} max={360} step={1} onChange={(h) => setChannel({ h })} />
+            <HslInput label="S" title="Saturation (0–100%)" value={hsl.s} min={0} max={100} step={0.5} onChange={(s) => setChannel({ s })} />
+            <HslInput label="L" title="Lightness (0–100%)" value={hsl.l} min={0} max={100} step={0.5} onChange={(l) => setChannel({ l })} />
+          </div>
+          <div class="metamer-control">
+            <label for="sel-metamer">Slide along metamer — cat sees no change</label>
+            <div class="slider-row">
+              <span>greener</span>
+              <input
+                ref={metaRef}
+                id="sel-metamer"
+                type="range"
+                min="0"
+                max="1"
+                step="0.005"
+                defaultValue={String(metaPos)}
+                disabled={!entry || metaRange < 1e-4}
+                aria-label="Move the selected color along its metamer (the red–green axis a cat can't see)"
+                onInput={(e) => setMeta(parseFloat((e.target as HTMLInputElement).value))}
+              />
+              <span>redder</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      {!entry && (
+        <div class="selected-empty">
+          <span>No color selected — click a dot in either plot to edit it.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- app ---------------------------------------------------------------------
 
 type HistState = { present: State; past: State[]; future: State[] };
@@ -444,6 +604,9 @@ export function App() {
   const [loadErr, setLoadErr] = useState('');
   // A spot the user clicked in the cat plot, plus the metamer colors there.
   const [pick, setPick] = useState<{ loc: XY; screen: { x: number; y: number }; metamers: Metamer[] } | null>(null);
+  // The palette entry currently selected (by clicking its dot), edited in the
+  // selected-color bar under the plots. Tracked by id so it survives reordering.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const state = hist.present;
   const { entries, background, minContrast } = state;
   const name = state.name ?? ''; // legacy saved states predate this field
@@ -686,6 +849,16 @@ export function App() {
   const onPickCat = (loc: XY, screen: { x: number; y: number }) =>
     setPick({ loc, screen, metamers: catMetamers(loc) });
 
+  // Selecting a dot (from either plot) opens it in the selected-color bar and
+  // dismisses any metamer popover, so the two interactions never overlap. Clicking
+  // the already-selected dot toggles it back off (deselect).
+  const selectEntry = (id: string) => {
+    setSelectedId((cur) => (cur === id ? null : id));
+    setPick(null);
+  };
+  const selIdx = selectedId ? entries.findIndex((e) => e.id === selectedId) : -1;
+  const selectedEntry = selIdx >= 0 ? entries[selIdx] : null;
+
   return (
     <div class="app">
       <header>
@@ -782,6 +955,9 @@ export function App() {
           xLabel="green ↔ red"
           yLabel="blue ↔ yellow"
           unit="a/b"
+          onSelect={(i) => selectEntry(entries[i].id)}
+          selected={selIdx}
+          onBackgroundClick={() => setSelectedId(null)}
         />
         <Scatter
           title="Cat — RNL cone space (ΔS)"
@@ -790,37 +966,40 @@ export function App() {
           yLabel="dark ↔ light"
           unit="ΔS"
           gamutBoundary={catGamut}
-          note={`Hatched: cone-space no sRGB color can reach · Shaded: contrast below ${minContrast.toFixed(1)}:1 on this background`}
           onPick={onPickCat}
+          onSelect={(i) => selectEntry(entries[i].id)}
+          selected={selIdx}
+          onBackgroundClick={() => setSelectedId(null)}
           marker={pick?.loc ?? null}
           shade={catShadeCb}
           dim={catDimCb}
           measure={nearestCat ? { to: { x: nearestCat.pt.x, y: nearestCat.pt.y }, belowMinSep: pickBelowMin } : null}
-          hint="Click a spot — or tab to a line — to see the colors a cat sees there"
+        >
+          <div class="metamer-control">
+            <label for="metamer-s">Cat-plot shading — metamer position</label>
+            <div class="slider-row">
+              <span>greener</span>
+              <input
+                id="metamer-s"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={metamerS}
+                aria-label="Metamer position along each spot's red-green spread"
+                onInput={(e) => setMetamerS(parseFloat((e.target as HTMLInputElement).value))}
+              />
+              <span>redder</span>
+            </div>
+          </div>
+        </Scatter>
+
+        <SelectedColorBar
+          entry={selectedEntry}
+          label={selectedEntry ? codeOf(selectedEntry, selIdx) : ''}
+          onEdit={onEdit}
         />
       </section>
-
-      <div class="metamer-shade">
-        <label for="metamer-s">Cat-plot shading — metamer position</label>
-        <div class="slider-row">
-          <span>greener</span>
-          <input
-            id="metamer-s"
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={metamerS}
-            aria-label="Metamer position along each spot's red-green spread"
-            onInput={(e) => setMetamerS(parseFloat((e.target as HTMLInputElement).value))}
-          />
-          <span>redder</span>
-        </div>
-        <div class="slider-val">
-          The cat plot is tinted with one human color per spot. Every spot holds a whole line of colors a cat
-          can't tell apart; 0 and 1 are that spot's own gamut ends along the red↔green axis cats are blind to.
-        </div>
-      </div>
 
       {entries.length > SOFT_CAP && (
         <div class="warn">
@@ -829,6 +1008,7 @@ export function App() {
         </div>
       )}
 
+      <h2 class="palette-head">Palette</h2>
       <section class="palette">
         {entries.map((e, i) => (
           <EntryRow

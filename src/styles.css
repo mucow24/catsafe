@@ -251,6 +251,16 @@ input[type="color"] {
 }
 
 /* --- palette rows --- */
+/* Labels the start of the editable line list, separating it from the plots +
+   selected-color bar above. */
+.palette-head {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
 .palette {
   display: flex;
   flex-direction: column;
@@ -406,27 +416,97 @@ input[type="color"] {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-top: 24px;
+  margin-bottom: 28px;
+  /* The cat card is taller (it carries the metamer slider in its footer); stretch
+     the human card to match so the two cards share one height, for consistency. */
+  align-items: stretch;
 }
-.metamer-shade {
-  margin: 12px auto 0;
-  max-width: 540px;
+/* Metamer-position slider, sitting in the cat plot card's footer. */
+.metamer-control {
+  margin-top: 10px;
+}
+.metamer-control > label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+/* --- selected-color bar --- */
+/* Spans both plot columns so it reads as part of the plots group, directly below
+   them; the .scatter-pair margin-bottom then separates it from the palette. */
+.scatter-pair .selected-bar {
+  grid-column: 1 / -1;
+}
+.selected-bar {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 12px 16px;
+  padding: 12px 16px 14px;
 }
-.metamer-shade > label {
-  display: block;
+.selected-head {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
-.metamer-shade .slider-val {
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.45;
+.selected-code {
+  color: var(--text);
+  font-weight: 600;
+}
+.selected-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+}
+.selected-body .swatches {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+/* H/S/L row stacked over the metamer slider — the "double-stack" the controls ask for. */
+.selected-controls {
+  flex: 1 1 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.selected-controls .hsl-group {
+  justify-content: space-between;
+}
+.selected-bar .metamer-control {
+  margin-top: 0;
+}
+/* Empty state: fade the inert controls, then float a legible message on an opaque
+   pill over them (plain text would read gray-on-gray against the faded swatches). */
+.selected-bar.empty .selected-body {
+  opacity: 0.25;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+.selected-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+.selected-empty > span {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
 }
 .scatter {
   background: var(--panel);
@@ -572,9 +652,21 @@ input[type="color"] {
   margin: 0 2px;
 }
 
+/* Highlight ring around the dot selected for editing — drawn in both plots. */
+.dot-selected {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
 /* --- cat-plot metamer picker --- */
 .scatter-svg.pickable {
   cursor: crosshair;
+}
+/* Dots are clickable to select; show a pointer over them (overrides the plot's
+   crosshair on the cat plot, and gives the otherwise-static human plot a cue). */
+.pick-target {
+  cursor: pointer;
 }
 .scatter-hint {
   margin-top: 4px;
