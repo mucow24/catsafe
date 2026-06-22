@@ -4,12 +4,14 @@ import {
   catHex,
   catMetamers,
   catShade,
+  catShadeBelowContrast,
   contrastRatio,
   hexToHsl,
   hslToHex,
   isLightBackground,
   labelColor,
   paletteScore,
+  relativeLuminance,
   simulate,
   type Hsl,
   type Metamer,
@@ -653,6 +655,17 @@ export function App() {
   const [metamerS, setMetamerS] = useState(0.5);
   const catShadeCb = useCallback((loc: XY) => catShade(loc, metamerS), [metamerS]);
 
+  // Shade out cat-plot spots whose tint (the same metamer color shown at metamerS)
+  // can't reach the WCAG contrast threshold against the current map background — i.e.
+  // colors there wouldn't be legible on that background. Hoist the background's
+  // luminance so the per-pixel test is just a metamer solve; re-memoize when the
+  // background, threshold, or shown metamer changes.
+  const bgLum = useMemo(() => relativeLuminance(background), [background]);
+  const catDimCb = useCallback(
+    (loc: XY) => catShadeBelowContrast(loc, metamerS, bgLum, minContrast),
+    [metamerS, bgLum, minContrast],
+  );
+
   // Clicked spot → nearest palette color on the cat plot: the dotted line we draw
   // there and the gap shown in the popover. It reads red when that gap is below
   // the plot's own min separation (the closest pair, same value shown under the
@@ -827,10 +840,11 @@ export function App() {
           yLabel="dark ↔ light"
           unit="ΔS"
           gamutBoundary={catGamut}
-          note="Hatched: cone-space no human-visible (sRGB) color can reach"
+          note={`Hatched: cone-space no sRGB color can reach · Shaded: contrast below ${minContrast.toFixed(1)}:1 on this background`}
           onPick={onPickCat}
           marker={pick?.loc ?? null}
           shade={catShadeCb}
+          dim={catDimCb}
           measure={nearestCat ? { to: { x: nearestCat.pt.x, y: nearestCat.pt.y }, belowMinSep: pickBelowMin } : null}
           hint="Click a spot — or tab to a line — to see the colors a cat sees there"
         />

@@ -474,6 +474,14 @@ input[type="color"] {
   stroke-width: 1;
   opacity: 0.3;
 }
+/* Flat wash over cone-space whose tinted color falls below the WCAG contrast
+   threshold against the current map background — those spots wouldn't be legible.
+   Rides --muted so it fades the colors toward neutral on either theme. */
+.low-contrast {
+  fill: var(--muted);
+  opacity: 0.55;
+  pointer-events: none;
+}
 .scatter-stat {
   margin-top: 6px;
   font-size: 11px;

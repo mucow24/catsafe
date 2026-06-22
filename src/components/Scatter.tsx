@@ -15,6 +15,39 @@ export function closestPair(points: Pt[]): { i: number; j: number; d: number } |
   return best;
 }
 
+/** Plot geometry needed to walk a data-space grid: origin, side, scale and centre. */
+type Geo = { ox: number; oy: number; plot: number; scale: number; cxD: number; cyD: number };
+
+/**
+ * Rasterise a per-pixel field to a data-URL once, then draw it as one <image> that
+ * scales with the SVG. A modest internal resolution is plenty — the fields here are
+ * smooth and the vector gamut hatch redraws the crisp edge on top. `paint` gets each
+ * pixel's data-space (x, y) and writes its RGBA bytes at `o`; leaving them 0 yields a
+ * transparent pixel. Returns null when no canvas context is available.
+ */
+function rasterField(geo: Geo, paint: (x: number, y: number, data: Uint8ClampedArray, o: number) => void): string | null {
+  const RES = 200;
+  const cv = document.createElement('canvas');
+  cv.width = RES;
+  cv.height = RES;
+  const ctx = cv.getContext('2d');
+  if (!ctx) return null;
+  const img = ctx.createImageData(RES, RES);
+  const data = img.data;
+  const { ox, oy, plot, scale, cxD, cyD } = geo;
+  for (let j = 0; j < RES; j++) {
+    const vy = oy + ((j + 0.5) / RES) * plot;
+    const y = cyD - (vy - oy - plot / 2) / scale;
+    for (let i = 0; i < RES; i++) {
+      const vx = ox + ((i + 0.5) / RES) * plot;
+      const x = cxD + (vx - ox - plot / 2) / scale;
+      paint(x, y, data, (j * RES + i) * 4);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return cv.toDataURL();
+}
+
 /**
  * Generic 2D scatter with EQUAL aspect (same pixels-per-unit on both axes), so
  * on-screen distance is faithful to the data. Draws a dotted link between the
@@ -33,6 +66,7 @@ export function Scatter({
   measure,
   hint,
   shade,
+  dim,
 }: {
   title: string;
   points: Pt[];
@@ -46,6 +80,11 @@ export function Scatter({
    *  color, or null where nothing should be drawn. Rendered as a raster layer behind
    *  the dots. Memoize it — a new identity re-renders the raster. */
   shade?: (loc: XY) => readonly [number, number, number] | null;
+  /** Optional per-coordinate mask: true where the spot should be shaded out (e.g. its
+   *  tinted color is below the legibility threshold). Rendered as a translucent wash
+   *  over the shade layer, clipped to the gamut. Memoize it — a new identity re-renders
+   *  the raster. */
+  dim?: (loc: XY) => boolean;
   /** Small caption under the plot (e.g. to explain the shading). */
   note?: string;
   /** If set, clicking the plot reports the clicked data location plus the
@@ -62,9 +101,11 @@ export function Scatter({
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [shadeUrl, setShadeUrl] = useState<string | null>(null);
+  const [dimUrl, setDimUrl] = useState<string | null>(null);
   const clipId = useId();
   const hatchId = useId();
   const gamutClipId = useId();
+  const dimMaskId = useId();
   const S = 240;
   const M = { l: 24, r: 10, t: 10, b: 22 };
   const boxW = S - M.l - M.r;
@@ -91,42 +132,38 @@ export function Scatter({
   const sx = (x: number) => ox + plot / 2 + (x - cxD) * scale;
   const sy = (y: number) => oy + plot / 2 - (y - cyD) * scale;
 
-  // Raster the `shade` fill into a data-URL once per (geometry, shade) change, then
-  // draw it as one <image> that scales with the SVG. A modest internal resolution is
-  // plenty — the field is smooth and the vector gamut hatch redraws the crisp edge on
-  // top. Bypasses the discrete catMetamers path: here we want a continuous color.
+  // Raster the `shade` fill into a data-URL once per (geometry, shade) change. Bypasses
+  // the discrete catMetamers path: here we want a continuous color per pixel.
   useEffect(() => {
-    if (!shade) {
-      setShadeUrl(null);
-      return;
-    }
-    const RES = 200;
-    const cv = document.createElement('canvas');
-    cv.width = RES;
-    cv.height = RES;
-    const ctx = cv.getContext('2d');
-    if (!ctx) return;
-    const img = ctx.createImageData(RES, RES);
-    const data = img.data;
-    for (let j = 0; j < RES; j++) {
-      const vy = oy + ((j + 0.5) / RES) * plot;
-      const y = cyD - (vy - oy - plot / 2) / scale;
-      for (let i = 0; i < RES; i++) {
-        const vx = ox + ((i + 0.5) / RES) * plot;
-        const x = cxD + (vx - ox - plot / 2) / scale;
-        const rgb = shade({ x, y });
-        const o = (j * RES + i) * 4;
-        if (rgb) {
-          data[o] = rgb[0];
-          data[o + 1] = rgb[1];
-          data[o + 2] = rgb[2];
-          data[o + 3] = 255;
-        }
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    setShadeUrl(cv.toDataURL());
+    setShadeUrl(
+      shade
+        ? rasterField({ ox, oy, plot, scale, cxD, cyD }, (x, y, data, o) => {
+            const rgb = shade({ x, y });
+            if (rgb) {
+              data[o] = rgb[0];
+              data[o + 1] = rgb[1];
+              data[o + 2] = rgb[2];
+              data[o + 3] = 255;
+            }
+          })
+        : null,
+    );
   }, [shade, ox, oy, plot, scale, cxD, cyD]);
+
+  // Raster the `dim` mask as opaque white where the spot is shaded out, transparent
+  // elsewhere; an SVG <mask> then paints the themed wash through it. Re-renders when
+  // the mask changes (it depends on the background and contrast threshold).
+  useEffect(() => {
+    setDimUrl(
+      dim
+        ? rasterField({ ox, oy, plot, scale, cxD, cyD }, (x, y, data, o) => {
+            if (dim({ x, y })) {
+              data[o] = data[o + 1] = data[o + 2] = data[o + 3] = 255;
+            }
+          })
+        : null,
+    );
+  }, [dim, ox, oy, plot, scale, cxD, cyD]);
 
   // Polygon tracing the in-gamut region (plot coords). Reused to clip the shade
   // layer to a crisp vector edge and to punch the out-of-gamut hatch.
@@ -204,6 +241,13 @@ export function Scatter({
               <path d={gamutPath} />
             </clipPath>
           )}
+          {dimUrl && (
+            // White-where-shaded raster as a luminance mask, so the wash <rect> below
+            // shows only over low-contrast spots and its color stays CSS-themeable.
+            <mask id={dimMaskId} maskUnits="userSpaceOnUse" x={ox} y={oy} width={plot} height={plot}>
+              <image href={dimUrl} x={ox} y={oy} width={plot} height={plot} preserveAspectRatio="none" />
+            </mask>
+          )}
         </defs>
         <rect x={ox} y={oy} width={plot} height={plot} class="scatter-bg" rx="6" />
         {shadeUrl && (
@@ -214,6 +258,17 @@ export function Scatter({
             width={plot}
             height={plot}
             preserveAspectRatio="none"
+            clip-path={`url(#${hasGamut ? gamutClipId : clipId})`}
+          />
+        )}
+        {dimUrl && (
+          <rect
+            x={ox}
+            y={oy}
+            width={plot}
+            height={plot}
+            class="low-contrast"
+            mask={`url(#${dimMaskId})`}
             clip-path={`url(#${hasGamut ? gamutClipId : clipId})`}
           />
         )}
