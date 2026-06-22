@@ -343,6 +343,33 @@ export function catShade(loc: XY, s: number): [number, number, number] | null {
   return line ? metamerSample(line, s) : null;
 }
 
+/** WCAG relative luminance (0..1) of the human color `catShade` paints at `loc` for
+ *  position `s` — i.e. the tint actually shown at that spot — or `null` out of gamut.
+ *  The metamer line is already linear sRGB (what `metamerSample` quantises), so this
+ *  is the Rec.709 luminance weights applied straight to those channels: no hex round-
+ *  trip, just a metamer solve plus a dot product per pixel. */
+export function catShadeLuminance(loc: XY, s: number): number | null {
+  const line = metamerLine(loc);
+  if (!line) return null;
+  const t = line.tmin + clamp01(s) * (line.tmax - line.tmin);
+  const r = clamp01(line.v0[0] + t * MET_D[0]);
+  const g = clamp01(line.v0[1] + t * MET_D[1]);
+  const b = clamp01(line.v0[2] + t * MET_D[2]);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** True when the tint shown at cat location `loc` (the `catShade` color at `s`) fails
+ *  to reach `minContrast` against a background of relative luminance `bgLum`. Out-of-
+ *  gamut spots return false — there's no tinted color there to judge. `bgLum` is
+ *  hoisted in by the caller (via `relativeLuminance`) so it isn't recomputed per pixel. */
+export function catShadeBelowContrast(loc: XY, s: number, bgLum: number, minContrast: number): boolean {
+  const lum = catShadeLuminance(loc, s);
+  if (lum == null) return false;
+  const hi = Math.max(lum, bgLum);
+  const lo = Math.min(lum, bgLum);
+  return (hi + 0.05) / (lo + 0.05) < minContrast;
+}
+
 /** Euclidean distance in OKLab. */
 export function labDist(a: Lab, b: Lab): number {
   const dl = a.l - b.l;
@@ -385,6 +412,11 @@ export function paletteScore(sims: Sim[], w: number): { min: number; worst: [num
 // ---------------------------------------------------------------------
 // Legibility
 // ---------------------------------------------------------------------
+
+/** WCAG relative luminance (0..1) of an sRGB hex; 0 if culori can't parse it. */
+export function relativeLuminance(hex: string): number {
+  return wcagLuminance(hex) ?? 0;
+}
 
 /** WCAG 2.x contrast ratio (1..21) between two colors. */
 export function contrastRatio(hex: string, bg: string): number {
