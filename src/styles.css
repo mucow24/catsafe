@@ -381,6 +381,27 @@ input[type="color"] {
   gap: 16px;
   margin-top: 24px;
 }
+.metamer-shade {
+  margin: 12px auto 0;
+  max-width: 540px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.metamer-shade > label {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.metamer-shade .slider-val {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
 .scatter {
   background: var(--panel);
   border: 1px solid var(--line);

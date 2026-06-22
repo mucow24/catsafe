@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
   catGamutBoundary,
   catHex,
   catMetamers,
+  catShade,
   contrastRatio,
   hexToHsl,
   hslToHex,
@@ -634,6 +635,13 @@ export function App() {
   // The sRGB gamut's image in cat cone space — constant, so compute it once.
   const catGamut = useMemo(() => catGamutBoundary(), []);
 
+  // Shade the cat plot with one representative human color per spot. metamerS picks
+  // where along each spot's red↔green metamer spread to sample (0 = greener end,
+  // 1 = redder end, per-spot relative). Memoized on metamerS so the raster only
+  // re-renders when the slider moves, not on every unrelated re-render.
+  const [metamerS, setMetamerS] = useState(0.5);
+  const catShadeCb = useCallback((loc: XY) => catShade(loc, metamerS), [metamerS]);
+
   // Click a spot in the cat plot to inspect every sRGB color that lands there —
   // the metamer set a cat perceives as one color (see catMetamers).
   const onPickCat = (loc: XY, screen: { x: number; y: number }) =>
@@ -803,9 +811,32 @@ export function App() {
           note="Hatched: cone-space no human-visible (sRGB) color can reach"
           onPick={onPickCat}
           marker={pick?.loc ?? null}
+          shade={catShadeCb}
           hint="Click a spot — or tab to a line — to see the colors a cat sees there"
         />
       </section>
+
+      <div class="metamer-shade">
+        <label for="metamer-s">Cat-plot shading — metamer position</label>
+        <div class="slider-row">
+          <span>greener</span>
+          <input
+            id="metamer-s"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={metamerS}
+            aria-label="Metamer position along each spot's red-green spread"
+            onInput={(e) => setMetamerS(parseFloat((e.target as HTMLInputElement).value))}
+          />
+          <span>redder</span>
+        </div>
+        <div class="slider-val">
+          The cat plot is tinted with one human color per spot. Every spot holds a whole line of colors a cat
+          can't tell apart; 0 and 1 are that spot's own gamut ends along the red↔green axis cats are blind to.
+        </div>
+      </div>
 
       {pick && (
         <MetamerPopup
