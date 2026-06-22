@@ -195,8 +195,8 @@ function loadTheme(bg: string): Theme {
 // --- per-entry row -----------------------------------------------------------
 
 /** Numeric H/S/L field. The native spinner, ↑/↓ keys, and wheel-over all nudge by
- *  `step`; holding Shift nudges by 1/10 of that for fine control. Values carry up to
- *  two decimals (the second only when a Shift step lands one). Uncontrolled so the
+ *  `step`; holding Shift nudges by 10× (coarse) and Ctrl by 1/10 (fine). Values carry
+ *  up to two decimals (the second only when a Ctrl step lands one). Uncontrolled so the
  *  field owns its text buffer while typing — we only write back when `value` changes
  *  from outside (and the field isn't focused). */
 function HslInput(props: {
@@ -211,7 +211,7 @@ function HslInput(props: {
   const { label, title, value, min, max, step, onChange } = props;
   const ref = useRef<HTMLInputElement>(null);
 
-  // One decimal normally; a second only when a fine (Shift) step produced one.
+  // One decimal normally; a second only when a fine (Ctrl) step produced one.
   const fmt = (v: number) => v.toFixed(2).replace(/0$/, '');
 
   useEffect(() => {
@@ -219,18 +219,19 @@ function HslInput(props: {
     if (el && document.activeElement !== el) el.value = fmt(value);
   }, [value]);
 
-  // Clamp to range and snap to 0.01 so Shift's 1/10 steps (e.g. 0.05) survive.
+  // Clamp to range and snap to 0.01 so Ctrl's 1/10 steps (e.g. 0.05) survive.
   const commit = (raw: string) => {
     const n = parseFloat(raw);
     if (!Number.isFinite(n)) return;
     onChange(Math.round(Math.min(max, Math.max(min, n)) * 100) / 100);
   };
 
-  // Point the native stepper at a full or 1/10 (Shift) step before it acts, so the
-  // wheel, spinner, and ↑/↓ keys all honor Shift through one code path.
-  const applyStep = (shift: boolean) => {
+  // Point the native stepper at the right step before it acts, so the wheel,
+  // spinner, and ↑/↓ keys all honor the modifiers through one code path:
+  // Shift → 10× coarse, Ctrl → 1/10 fine, neither → the base step.
+  const applyStep = (e: { shiftKey: boolean; ctrlKey: boolean }) => {
     const el = ref.current;
-    if (el) el.step = String(shift ? step / 10 : step);
+    if (el) el.step = String(e.shiftKey ? step * 10 : e.ctrlKey ? step / 10 : step);
   };
 
   // Drive the wheel through the native stepper so it snaps and clamps exactly
@@ -239,7 +240,7 @@ function HslInput(props: {
     const el = ref.current;
     if (!el) return;
     e.preventDefault();
-    applyStep(e.shiftKey);
+    applyStep(e);
     if (e.deltaY < 0) el.stepUp();
     else el.stepDown();
     commit(el.value);
@@ -260,9 +261,9 @@ function HslInput(props: {
         onInput={(e) => commit((e.target as HTMLInputElement).value)}
         onWheel={onWheel}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowUp' || e.key === 'ArrowDown') applyStep(e.shiftKey);
+          if (e.key === 'ArrowUp' || e.key === 'ArrowDown') applyStep(e);
         }}
-        onMouseDown={(e) => applyStep(e.shiftKey)}
+        onMouseDown={(e) => applyStep(e)}
         onBlur={(e) => {
           (e.target as HTMLInputElement).value = fmt(value);
         }}
