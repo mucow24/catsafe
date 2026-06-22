@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
+  catGamutBoundary,
   catHex,
   catMetamers,
   contrastRatio,
@@ -630,6 +631,8 @@ export function App() {
     catHex: s.catHex,
     label: codeOf(entries[i], i),
   }));
+  // The sRGB gamut's image in cat cone space — constant, so compute it once.
+  const catGamut = useMemo(() => catGamutBoundary(), []);
 
   // Click a spot in the cat plot to inspect every sRGB color that lands there —
   // the metamer set a cat perceives as one color (see catMetamers).
@@ -796,6 +799,8 @@ export function App() {
           xLabel="yellow ↔ blue"
           yLabel="dark ↔ light"
           unit="ΔS"
+          gamutBoundary={catGamut}
+          note="Hatched: cone-space no human-visible (sRGB) color can reach"
           onPick={onPickCat}
           marker={pick?.loc ?? null}
           hint="Click a spot — or tab to a line — to see the colors a cat sees there"

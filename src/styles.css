@@ -421,6 +421,19 @@ input[type="color"] {
   stroke-dasharray: 3 3;
   opacity: 0.65;
 }
+/* Hatched fill for the cone-space region no sRGB color can reach. */
+.out-of-gamut {
+  pointer-events: none;
+}
+.oog-bg {
+  fill: var(--muted);
+  opacity: 0.05;
+}
+.oog-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+  opacity: 0.3;
+}
 .scatter-stat {
   margin-top: 6px;
   font-size: 11px;
@@ -430,6 +443,13 @@ input[type="color"] {
 .scatter-stat strong {
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+.scatter-note {
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  opacity: 0.85;
 }
 .tip-bg {
   fill: #0b0d11;

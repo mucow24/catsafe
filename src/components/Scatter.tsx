@@ -26,6 +26,8 @@ export function Scatter({
   xLabel,
   yLabel,
   unit,
+  gamutBoundary,
+  note,
   onPick,
   marker,
   hint,
@@ -35,6 +37,11 @@ export function Scatter({
   xLabel?: string;
   yLabel?: string;
   unit?: string;
+  /** Closed polygon (in plot coords) bounding the human-visible region; the area
+   *  inside the plot box but outside it is shaded as unreachable. */
+  gamutBoundary?: XY[];
+  /** Small caption under the plot (e.g. to explain the shading). */
+  note?: string;
   /** If set, clicking the plot reports the clicked data location plus the
    *  cursor's viewport position (so the caller can place a popup there). */
   onPick?: (loc: XY, screen: { x: number; y: number }) => void;
@@ -45,6 +52,7 @@ export function Scatter({
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const clipId = useId();
+  const hatchId = useId();
   const S = 240;
   const M = { l: 24, r: 10, t: 10, b: 22 };
   const boxW = S - M.l - M.r;
@@ -116,10 +124,42 @@ export function Scatter({
         aria-label={title}
         onClick={onPick ? handleClick : undefined}
       >
-        <clipPath id={clipId}>
-          <rect x={ox} y={oy} width={plot} height={plot} />
-        </clipPath>
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={ox} y={oy} width={plot} height={plot} rx="6" />
+          </clipPath>
+          {gamutBoundary && gamutBoundary.length > 2 && (
+            // Diagonal hatch marking the unreachable region.
+            <pattern
+              id={hatchId}
+              width="7"
+              height="7"
+              patternUnits="userSpaceOnUse"
+              patternTransform="rotate(45)"
+            >
+              <rect width="7" height="7" class="oog-bg" />
+              <line x1="0" y1="0" x2="0" y2="7" class="oog-line" />
+            </pattern>
+          )}
+        </defs>
         <rect x={ox} y={oy} width={plot} height={plot} class="scatter-bg" rx="6" />
+        {gamutBoundary && gamutBoundary.length > 2 && (
+          // Fill the plot box, then punch out the in-gamut polygon (even-odd), so
+          // only cone-space coordinates no sRGB color can reach stay hatched.
+          <path
+            class="out-of-gamut"
+            clip-path={`url(#${clipId})`}
+            fill={`url(#${hatchId})`}
+            fill-rule="evenodd"
+            d={
+              `M${ox} ${oy}H${ox + plot}V${oy + plot}H${ox}Z` +
+              gamutBoundary
+                .map((p, i) => `${i ? 'L' : 'M'}${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`)
+                .join('') +
+              'Z'
+            }
+          />
+        )}
         {showVAxis && <line x1={sx(0)} y1={oy} x2={sx(0)} y2={oy + plot} class="axis" />}
         {showHAxis && <line x1={ox} y1={sy(0)} x2={ox + plot} y2={sy(0)} class="axis" />}
         {cp && (
@@ -196,6 +236,7 @@ export function Scatter({
           {points[cp.j].label}
         </div>
       )}
+      {note && <div class="scatter-note">{note}</div>}
       {hint && <div class="scatter-hint">{hint}</div>}
     </div>
   );
