@@ -274,15 +274,17 @@ function HslInput(props: {
 function EntryRow(props: {
   entry: Entry;
   index: number;
+  count: number;
   bg: string;
   minContrast: number;
   isWorst: boolean;
   onEdit: (id: string, color: string, coalesceKey?: string) => void;
   onCode: (id: string, code: string) => void;
   onToggleLock: (id: string) => void;
+  onMove: (id: string, dir: -1 | 1) => void;
   onRemove: (id: string) => void;
 }) {
-  const { entry, index, bg, minContrast, isWorst, onEdit, onCode, onToggleLock, onRemove } = props;
+  const { entry, index, count, bg, minContrast, isWorst, onEdit, onCode, onToggleLock, onMove, onRemove } = props;
   const cat = catHex(entry.color);
   const cr = contrastRatio(entry.color, bg);
   const lowContrast = cr < minContrast;
@@ -457,6 +459,26 @@ function EntryRow(props: {
         <span class={`contrast${lowContrast ? ' bad' : ''}`} title="WCAG contrast vs background">
           {cr.toFixed(1)}:1
         </span>
+        <div class="move-group">
+          <button
+            class="move"
+            title="Move line up"
+            aria-label={`Move line ${codeOf(entry, index)} up`}
+            disabled={index === 0}
+            onClick={() => onMove(entry.id, -1)}
+          >
+            ▲
+          </button>
+          <button
+            class="move"
+            title="Move line down"
+            aria-label={`Move line ${codeOf(entry, index)} down`}
+            disabled={index === count - 1}
+            onClick={() => onMove(entry.id, 1)}
+          >
+            ▼
+          </button>
+        </div>
         <button class={`lock${entry.locked ? ' on' : ''}`} title={lockTitle} onClick={() => onToggleLock(entry.id)}>
           {lockLabel}
         </button>
@@ -821,6 +843,19 @@ export function App() {
 
   const onToggleLock = (id: string) =>
     setEntries((es) => es.map((e) => (e.id === id ? { ...e, locked: !e.locked } : e)));
+
+  // Swap an entry with its neighbor. Codes ride with their entry (they're sticky
+  // per-entry; only the positional fallback label tracks index), so reordering just
+  // reshuffles the list — bullets, plot labels, and exports follow the new order.
+  const onMove = (id: string, dir: -1 | 1) =>
+    setEntries((es) => {
+      const i = es.findIndex((e) => e.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= es.length) return es;
+      const next = es.slice();
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
 
   const onRemove = (id: string) => setEntries((es) => es.filter((e) => e.id !== id));
   const onAdd = () =>
@@ -1209,12 +1244,14 @@ export function App() {
             key={e.id}
             entry={e}
             index={i}
+            count={entries.length}
             bg={background}
             minContrast={minContrast}
             isWorst={i === wi || i === wj}
             onEdit={onEdit}
             onCode={onCode}
             onToggleLock={onToggleLock}
+            onMove={onMove}
             onRemove={onRemove}
           />
         ))}
