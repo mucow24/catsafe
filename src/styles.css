@@ -13,13 +13,11 @@
   color-scheme: dark;
 }
 
-/* When the map background under test is light (e.g. white), mirror it onto the
-   whole page and flip the chrome to dark-on-light, so palette colors are seen in
-   the same context a real map gives them. --page-bg carries the exact tested
-   color (set from app.tsx); panels share it so swatches sit directly on it. */
-:root.light-map {
-  --bg: var(--page-bg, #ffffff);
-  --panel: var(--page-bg, #ffffff);
+/* Light page theme — applied by the toolbar toggle, independent of the map
+   background (which now only colors the bullet panel, via --page-bg). */
+:root.light {
+  --bg: #f4f6f9;
+  --panel: #ffffff;
   --panel-2: #eef1f5;
   --line: #d3d9e0;
   --text: #14171c;
@@ -32,23 +30,23 @@
 }
 /* Keep the status indicators legible on a light surface (their dark-theme
    values are pale-on-dark and would wash out on white). */
-:root.light-map .contrast.bad,
-:root.light-map .modal-err {
+:root.light .contrast.bad,
+:root.light .modal-err {
   color: #c62828;
 }
 /* Scatter plots: light plot area, plus axes/link/tooltip retuned for it. The
    dark-theme defaults are pale strokes on near-black and invert poorly. The
    tooltip flips to light-on-dark-text since .tip-text rides --text (now dark). */
-:root.light-map .scatter-bg {
+:root.light .scatter-bg {
   fill: #f2f4f7;
 }
-:root.light-map .axis {
+:root.light .axis {
   stroke: #c2c9d2;
 }
-:root.light-map .closest-link {
+:root.light .closest-link {
   stroke: #6b7480;
 }
-:root.light-map .tip-bg {
+:root.light .tip-bg {
   fill: #ffffff;
   stroke: var(--line);
 }
@@ -420,7 +418,9 @@ input[type="color"] {
   gap: 10px;
   margin: 0 0 14px;
   padding: 12px 14px;
-  background: var(--panel);
+  /* The panel wears the map background, so the bullets are seen on the surface
+     they'll actually sit on. */
+  background: var(--page-bg, var(--panel));
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
@@ -429,7 +429,8 @@ input[type="color"] {
   height: 35px;
   flex: none;
   padding: 0;
-  border: none;
+  /* Hairline so a bullet whose color is near the map background still reads. */
+  border: 1px solid rgba(0, 0, 0, 0.22);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -606,7 +607,7 @@ input[type="color"] {
 .measure-link.under {
   stroke: #ff8a80;
 }
-:root.light-map .measure-link.under {
+:root.light .measure-link.under {
   stroke: #c62828;
 }
 /* Hatched fill for the cone-space region no sRGB color can reach. */
@@ -790,7 +791,7 @@ input[type="color"] {
   color: #ff8a80;
   font-weight: 700;
 }
-:root.light-map .metamer-dist.below {
+:root.light .metamer-dist.below {
   color: #c62828;
 }
 .metamer-catrow {

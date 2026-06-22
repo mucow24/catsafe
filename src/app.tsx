@@ -177,6 +177,21 @@ function loadInitial(): State {
   return DEFAULT_STATE;
 }
 
+type Theme = 'light' | 'dark';
+/** Page light/dark theme — an independent, persisted UI preference, no longer tied
+ *  to the map background. First run with nothing saved falls back to what the map
+ *  background used to imply, so the page looks unchanged the first time after the
+ *  two were decoupled. */
+function loadTheme(bg: string): Theme {
+  try {
+    const t = localStorage.getItem('catsafe-theme');
+    if (t === 'light' || t === 'dark') return t;
+  } catch {
+    /* ignore */
+  }
+  return isLightBackground(bg) ? 'light' : 'dark';
+}
+
 // --- per-entry row -----------------------------------------------------------
 
 /** Numeric H/S/L field. The native spinner, ↑/↓ keys, and wheel-over all nudge
@@ -607,6 +622,10 @@ export function App() {
   // The palette entry currently selected (by clicking its dot), edited in the
   // selected-color bar under the plots. Tracked by id so it survives reordering.
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Page light/dark theme — decoupled from the map background, toggled in the
+  // toolbar and persisted in localStorage.
+  const [theme, setTheme] = useState<Theme>(() => loadTheme(hist.present.background));
+  const toggleTheme = () => setTheme((t) => (t === 'light' ? 'dark' : 'light'));
   const state = hist.present;
   const { entries, background, minContrast } = state;
   const name = state.name ?? ''; // legacy saved states predate this field
@@ -645,16 +664,25 @@ export function App() {
     );
   };
 
-  // Mirror the map background under test onto the whole page. When it's light
-  // (e.g. white), flip the UI chrome to a light surface so palette colors are
-  // judged in the same context a real map gives them — a dark page would skew
-  // how the colors read. useLayoutEffect avoids a dark→light flash on load
-  // (the default background is white).
+  // The map background colors the bullet panel (so the palette is seen on the
+  // surface it'll sit on); the page light/dark theme is now an independent toggle.
+  // --page-bg carries the tested color to the bullet panel; the `light` class
+  // applies the chosen theme. useLayoutEffect applies both before paint to avoid a
+  // theme flash on load.
   useLayoutEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--page-bg', background);
-    root.classList.toggle('light-map', isLightBackground(background));
-  }, [background]);
+    root.classList.toggle('light', theme === 'light');
+  }, [background, theme]);
+
+  // Persist the theme preference (separate key from the palette state).
+  useEffect(() => {
+    try {
+      localStorage.setItem('catsafe-theme', theme);
+    } catch {
+      /* ignore */
+    }
+  }, [theme]);
 
   useEffect(() => {
     const enc = encode(state);
@@ -944,6 +972,14 @@ export function App() {
           </button>
           <button class="mini" disabled={!canRedo} onClick={redo} title="Redo (Ctrl+Shift+Z)">
             ↷ redo
+          </button>
+          <button
+            class="mini theme-toggle"
+            onClick={toggleTheme}
+            title={`Switch to ${theme === 'light' ? 'Night (dark)' : 'Sun (light)'} theme`}
+            aria-label={`Switch to ${theme === 'light' ? 'night' : 'sun'} theme`}
+          >
+            {theme === 'light' ? '🌙 Night' : '☀ Sun'}
           </button>
         </div>
       </section>
