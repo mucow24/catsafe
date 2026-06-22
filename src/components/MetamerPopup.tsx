@@ -13,11 +13,17 @@ export function MetamerPopup({
   loc,
   screen,
   metamers,
+  dist,
+  belowMinSep,
   onClose,
 }: {
   loc: XY;
   screen: { x: number; y: number };
   metamers: Metamer[];
+  /** ΔS from the clicked spot to the nearest palette color (null if no colors). */
+  dist: number | null;
+  /** True when `dist` is below the palette's min separation — shown in red. */
+  belowMinSep: boolean;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -88,6 +94,11 @@ export function MetamerPopup({
       <div class="metamer-loc">
         RNL ({loc.x.toFixed(1)}, {loc.y.toFixed(1)})
       </div>
+      {dist != null && (
+        <div class={`metamer-dist${belowMinSep ? ' below' : ''}`}>
+          {dist < 1 ? dist.toFixed(3) : dist.toFixed(1)} ΔS to nearest color
+        </div>
+      )}
 
       {metamers.length === 0 ? (
         <div class="metamer-empty">
