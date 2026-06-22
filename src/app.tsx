@@ -194,9 +194,10 @@ function loadTheme(bg: string): Theme {
 
 // --- per-entry row -----------------------------------------------------------
 
-/** Numeric H/S/L field. The native spinner, ↑/↓ keys, and wheel-over all nudge
- *  by `step` (0.5); values carry one decimal place. Uncontrolled so the field
- *  owns its text buffer while typing — we only write back when `value` changes
+/** Numeric H/S/L field. The native spinner, ↑/↓ keys, and wheel-over all nudge by
+ *  `step`; holding Shift nudges by 1/10 of that for fine control. Values carry up to
+ *  two decimals (the second only when a Shift step lands one). Uncontrolled so the
+ *  field owns its text buffer while typing — we only write back when `value` changes
  *  from outside (and the field isn't focused). */
 function HslInput(props: {
   label: string;
@@ -210,16 +211,26 @@ function HslInput(props: {
   const { label, title, value, min, max, step, onChange } = props;
   const ref = useRef<HTMLInputElement>(null);
 
+  // One decimal normally; a second only when a fine (Shift) step produced one.
+  const fmt = (v: number) => v.toFixed(2).replace(/0$/, '');
+
   useEffect(() => {
     const el = ref.current;
-    if (el && document.activeElement !== el) el.value = value.toFixed(1);
+    if (el && document.activeElement !== el) el.value = fmt(value);
   }, [value]);
 
-  // Clamp to range and snap to one decimal so the stored HSL matches the display.
+  // Clamp to range and snap to 0.01 so Shift's 1/10 steps (e.g. 0.05) survive.
   const commit = (raw: string) => {
     const n = parseFloat(raw);
     if (!Number.isFinite(n)) return;
-    onChange(Math.round(Math.min(max, Math.max(min, n)) * 10) / 10);
+    onChange(Math.round(Math.min(max, Math.max(min, n)) * 100) / 100);
+  };
+
+  // Point the native stepper at a full or 1/10 (Shift) step before it acts, so the
+  // wheel, spinner, and ↑/↓ keys all honor Shift through one code path.
+  const applyStep = (shift: boolean) => {
+    const el = ref.current;
+    if (el) el.step = String(shift ? step / 10 : step);
   };
 
   // Drive the wheel through the native stepper so it snaps and clamps exactly
@@ -228,6 +239,7 @@ function HslInput(props: {
     const el = ref.current;
     if (!el) return;
     e.preventDefault();
+    applyStep(e.shiftKey);
     if (e.deltaY < 0) el.stepUp();
     else el.stepDown();
     commit(el.value);
@@ -244,11 +256,15 @@ function HslInput(props: {
         min={min}
         max={max}
         step={step}
-        defaultValue={value.toFixed(1)}
+        defaultValue={fmt(value)}
         onInput={(e) => commit((e.target as HTMLInputElement).value)}
         onWheel={onWheel}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp' || e.key === 'ArrowDown') applyStep(e.shiftKey);
+        }}
+        onMouseDown={(e) => applyStep(e.shiftKey)}
         onBlur={(e) => {
-          (e.target as HTMLInputElement).value = value.toFixed(1);
+          (e.target as HTMLInputElement).value = fmt(value);
         }}
       />
     </label>
