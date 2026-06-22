@@ -625,9 +625,13 @@ input[type="color"] {
 }
 /* Flat wash over cone-space whose tinted color falls below the WCAG contrast
    threshold against the current map background — those spots wouldn't be legible.
-   Rides --muted so it fades the colors toward neutral on either theme. */
+   The wash is the map background's own contrasting ink (--low-contrast-wash =
+   legibleTextOn(mapBg), set in app.tsx): black over a light map, white over a dark
+   one. So it always reads as "blocked out" and stays tied to the map, not the page
+   theme — a page-theme color (--muted) brightens these spots when a light map is
+   viewed under the dark theme. */
 .low-contrast {
-  fill: var(--muted);
+  fill: var(--low-contrast-wash, var(--muted));
   opacity: 0.55;
   pointer-events: none;
 }

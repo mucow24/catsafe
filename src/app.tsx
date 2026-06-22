@@ -672,6 +672,10 @@ export function App() {
   useLayoutEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--page-bg', background);
+    // The cat-plot "below contrast" wash is tied to the map, not the page theme:
+    // the map's own contrasting ink (black on a light map, white on a dark one), so
+    // it always dims/marks those spots rather than brightening them in dark theme.
+    root.style.setProperty('--low-contrast-wash', legibleTextOn(background));
     root.classList.toggle('light', theme === 'light');
   }, [background, theme]);
 
