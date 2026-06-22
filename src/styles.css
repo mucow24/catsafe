@@ -13,13 +13,11 @@
   color-scheme: dark;
 }
 
-/* When the map background under test is light (e.g. white), mirror it onto the
-   whole page and flip the chrome to dark-on-light, so palette colors are seen in
-   the same context a real map gives them. --page-bg carries the exact tested
-   color (set from app.tsx); panels share it so swatches sit directly on it. */
-:root.light-map {
-  --bg: var(--page-bg, #ffffff);
-  --panel: var(--page-bg, #ffffff);
+/* Light page theme — applied by the toolbar toggle, independent of the map
+   background (which now only colors the bullet panel, via --page-bg). */
+:root.light {
+  --bg: #f4f6f9;
+  --panel: #ffffff;
   --panel-2: #eef1f5;
   --line: #d3d9e0;
   --text: #14171c;
@@ -32,23 +30,23 @@
 }
 /* Keep the status indicators legible on a light surface (their dark-theme
    values are pale-on-dark and would wash out on white). */
-:root.light-map .contrast.bad,
-:root.light-map .modal-err {
+:root.light .contrast.bad,
+:root.light .modal-err {
   color: #c62828;
 }
 /* Scatter plots: light plot area, plus axes/link/tooltip retuned for it. The
    dark-theme defaults are pale strokes on near-black and invert poorly. The
    tooltip flips to light-on-dark-text since .tip-text rides --text (now dark). */
-:root.light-map .scatter-bg {
+:root.light .scatter-bg {
   fill: #f2f4f7;
 }
-:root.light-map .axis {
+:root.light .axis {
   stroke: #c2c9d2;
 }
-:root.light-map .closest-link {
+:root.light .closest-link {
   stroke: #6b7480;
 }
-:root.light-map .tip-bg {
+:root.light .tip-bg {
   fill: #ffffff;
   stroke: var(--line);
 }
@@ -114,24 +112,68 @@ header h1 {
   border-bottom-color: var(--accent);
 }
 
-/* --- controls --- */
-.controls {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 14px;
-  margin: 22px 0 18px;
-  padding: 16px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+/* Header: palette name grows on the left, load/export sits at the right, both
+   aligned to the name input's baseline. Wraps to two lines when cramped. */
+.header-row {
+  margin-top: 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  flex-wrap: wrap;
 }
-.control label {
+.header-row .name-control {
+  margin-top: 0;
+  flex: 1 1 280px;
+}
+.exports > label {
   display: block;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
   margin-bottom: 6px;
+}
+
+/* --- toolbar --- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 18px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  margin: 0 2px;
+}
+.tb-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bg-cluster,
+.contrast-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.contrast-field input[type="range"] {
+  width: 96px;
+}
+/* Undo/redo float to the far right of the toolbar. */
+.tb-history {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 .slider-row {
   display: flex;
@@ -152,28 +194,10 @@ input[type="range"] {
   font-size: 12px;
   color: var(--text);
 }
-.bg-row,
 .export-row {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.actions {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.score-control .score {
-  font-size: 26px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  line-height: 1;
-}
-.score-control .score-sub {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 4px;
 }
 
 button {
@@ -225,6 +249,16 @@ input[type="color"] {
 }
 
 /* --- palette rows --- */
+/* Labels the start of the editable line list, separating it from the plots +
+   selected-color bar above. */
+.palette-head {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
 .palette {
   display: flex;
   flex-direction: column;
@@ -374,33 +408,206 @@ input[type="color"] {
   text-align: center;
 }
 
+/* --- subway-bullet row --- */
+/* One circular, transit-style bullet per palette color, in order, lettered with
+   its service code. Clicking selects that line (same as clicking its plot dot). */
+.bullet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  /* The panel wears the map background, so the bullets are seen on the surface
+     they'll actually sit on. */
+  background: var(--page-bg, var(--panel));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.bullet {
+  width: 35px;
+  height: 35px;
+  flex: none;
+  padding: 0;
+  /* Hairline so a bullet whose color is near the map background still reads. */
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 16px/1 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  transition: box-shadow 0.12s;
+}
+.bullet:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.bullet:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* Selected bullet gets a steady ring, matching the selected dot in the plots. */
+.bullet.selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.bullet-empty {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 /* --- scatter plots --- */
 .scatter-pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-top: 24px;
+  margin-bottom: 28px;
+  /* The cat card is taller (it carries the metamer slider in its footer); stretch
+     the human card to match so the two cards share one height, for consistency. */
+  align-items: stretch;
 }
-.metamer-shade {
-  margin: 12px auto 0;
-  max-width: 540px;
+/* Metamer-position slider, sitting in the cat plot card's footer. */
+.metamer-control {
+  margin-top: 10px;
+}
+.metamer-control > label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+/* "Shade too close" / "Shade low contrast" toggles, under the cat plot's metamer slider. */
+.shade-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.shade-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.shade-toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* --- selected-color bar --- */
+/* A full-width panel sitting between the bullet row and the plots: pick a line
+   (bullet or plot dot), edit it here. */
+.selected-bar {
+  position: relative;
+  margin-bottom: 24px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 12px 16px;
+  padding: 12px 16px 14px;
 }
-.metamer-shade > label {
-  display: block;
+.selected-head {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
-.metamer-shade .slider-val {
+.selected-code {
+  color: var(--text);
+  font-weight: 600;
+}
+.selected-body {
+  display: flex;
+  flex-wrap: wrap;
+  /* Stretch both columns to a shared height; each pushes its bottom item to the
+     bottom (below) so the contrast readout lines up with the metamer slider, while
+     the swatches' tops still line up with the H/S/L row. */
+  align-items: stretch;
+  gap: 18px;
+}
+/* Left column: the two swatches up top, the contrast readout tucked underneath. */
+.selected-swatch-col {
+  flex: 1 1 240px;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: space-between;
+}
+.selected-contrast {
+  min-width: 0;
+  text-align: left;
+  font-size: 13px;
+}
+/* H/S/L row stacked over the metamer slider — the "double-stack" the controls ask for. */
+.selected-controls {
+  flex: 1 1 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: space-between;
+}
+.selected-controls .hsl-group {
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* Hex field before the H/S/L boxes in the selected-color bar. */
+.hex-input {
+  width: 84px;
+  font: 13px/1 ui-monospace, Menlo, Consolas, monospace;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 6px;
+}
+.hex-input:focus {
+  outline: none;
+  border-color: var(--accent-2);
+}
+.selected-bar .metamer-control {
+  margin-top: 0;
+}
+/* Compact "Sync" button at the right of the selected color's metamer slider —
+   pushes the plot's shading slider to this color's metamer position. */
+.sync-btn {
+  flex: none;
+  padding: 4px 9px;
   font-size: 11px;
-  color: var(--muted);
-  line-height: 1.45;
+  white-space: nowrap;
+}
+/* Empty state: fade the inert controls, then float a legible message on an opaque
+   pill over them (plain text would read gray-on-gray against the faded swatches). */
+.selected-bar.empty .selected-body {
+  opacity: 0.25;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+.selected-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+.selected-empty > span {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
 }
 .scatter {
   background: var(--panel);
@@ -458,7 +665,7 @@ input[type="color"] {
 .measure-link.under {
   stroke: #ff8a80;
 }
-:root.light-map .measure-link.under {
+:root.light .measure-link.under {
   stroke: #c62828;
 }
 /* Hatched fill for the cone-space region no sRGB color can reach. */
@@ -476,21 +683,47 @@ input[type="color"] {
 }
 /* Flat wash over cone-space whose tinted color falls below the WCAG contrast
    threshold against the current map background — those spots wouldn't be legible.
-   Rides --muted so it fades the colors toward neutral on either theme. */
+   The wash is the map background's own contrasting ink (--low-contrast-wash =
+   legibleTextOn(mapBg), set in app.tsx): black over a light map, white over a dark
+   one. So it always reads as "blocked out" and stays tied to the map, not the page
+   theme — a page-theme color (--muted) brightens these spots when a light map is
+   viewed under the dark theme. */
 .low-contrast {
-  fill: var(--muted);
+  fill: var(--low-contrast-wash, var(--muted));
   opacity: 0.55;
   pointer-events: none;
 }
+/* The headline number for each plot — how far apart the two closest lines are,
+   in that plot's own units (a/b for human, ΔS for cat). Replaces the old top-bar
+   score; shown big because it's the palette's key legibility result. */
 .scatter-stat {
-  margin-top: 6px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.stat-val {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.stat-unit {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.stat-lines {
   font-size: 11px;
   color: var(--muted);
-  text-align: center;
-}
-.scatter-stat strong {
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
 }
 .scatter-note {
   margin-top: 3px;
@@ -524,9 +757,21 @@ input[type="color"] {
   margin: 0 2px;
 }
 
+/* Highlight ring around the dot selected for editing — drawn in both plots. */
+.dot-selected {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
 /* --- cat-plot metamer picker --- */
 .scatter-svg.pickable {
   cursor: crosshair;
+}
+/* Dots are clickable to select; show a pointer over them (overrides the plot's
+   crosshair on the cat plot, and gives the otherwise-static human plot a cue). */
+.pick-target {
+  cursor: pointer;
 }
 .scatter-hint {
   margin-top: 4px;
@@ -608,7 +853,7 @@ input[type="color"] {
   color: #ff8a80;
   font-weight: 700;
 }
-:root.light-map .metamer-dist.below {
+:root.light .metamer-dist.below {
   color: #c62828;
 }
 .metamer-catrow {

@@ -336,6 +336,35 @@ export function metamerSample(line: MetamerLine, s: number): [number, number, nu
   return [SHADE_LUT[r | 0], SHADE_LUT[g | 0], SHADE_LUT[b | 0]];
 }
 
+/** Where the human sRGB color `hex` sits along the in-gamut metamer segment
+ *  `line`, as a fraction `s ∈ [0,1]` (0 = greener/−d end, 1 = redder/+d end).
+ *  `hex` is assumed to lie on the line — it shares the line's cat location — so we
+ *  project it onto MET_D and renormalise to [tmin, tmax]. Used to seed the
+ *  "slide along this color's metamer" control from the color's current position. */
+export function metamerPosition(line: MetamerLine, hex: string): number {
+  const c = rgb(hex);
+  if (!c) return 0.5;
+  const w: [number, number, number] = [
+    srgbToLinear(c.r) - line.v0[0],
+    srgbToLinear(c.g) - line.v0[1],
+    srgbToLinear(c.b) - line.v0[2],
+  ];
+  const t = dot3(w, MET_D) / dot3(MET_D, MET_D);
+  const span = line.tmax - line.tmin;
+  return span > 0 ? clamp01((t - line.tmin) / span) : 0.5;
+}
+
+/** The human sRGB hex at fraction `s ∈ [0,1]` of metamer segment `line` — the
+ *  editable inverse of `metamerPosition`. Computed from the linear line directly
+ *  (not the shading LUT) so the committed color is as faithful as 8-bit allows. */
+export function metamerColorAt(line: MetamerLine, s: number): string {
+  const t = line.tmin + clamp01(s) * (line.tmax - line.tmin);
+  const r = clamp01(line.v0[0] + t * MET_D[0]);
+  const g = clamp01(line.v0[1] + t * MET_D[1]);
+  const b = clamp01(line.v0[2] + t * MET_D[2]);
+  return formatHex({ mode: 'rgb' as const, r: linearToSrgb(r), g: linearToSrgb(g), b: linearToSrgb(b) }) ?? '#000000';
+}
+
 /** Human color (as [r,g,b] bytes) at fraction `s` of the metamer spread at `loc`,
  *  or `null` when `loc` is out of gamut. One call per shaded pixel. */
 export function catShade(loc: XY, s: number): [number, number, number] | null {
@@ -427,9 +456,13 @@ export function contrastRatio(hex: string, bg: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Black or white, whichever reads better as a label on top of `hex`. */
-export function labelColor(hex: string): string {
-  return contrastRatio(hex, '#000000') >= contrastRatio(hex, '#ffffff') ? '#ffffff' : '#000000';
+/** Black or white text, whichever stays legible on background `hex`. Ported from
+ *  massimo's `legibleTextOn`: WCAG relative luminance with a 0.5 split — a light
+ *  background (L > 0.5) takes black text, a dark one takes white. (The previous
+ *  `labelColor` compared contrast-vs-black against contrast-vs-white and returned
+ *  the *worse* of the two, i.e. it was inverted — the worst-case label.) */
+export function legibleTextOn(hex: string): string {
+  return relativeLuminance(hex) > 0.5 ? '#000000' : '#ffffff';
 }
 
 /** True if `hex` is a light background — i.e. a map color the page should mirror. */

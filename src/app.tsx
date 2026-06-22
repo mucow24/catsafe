@@ -5,15 +5,20 @@ import {
   catMetamers,
   catShade,
   catShadeBelowContrast,
+  catSpace,
   contrastRatio,
   hexToHsl,
   hslToHex,
   isLightBackground,
-  labelColor,
+  legibleTextOn,
+  metamerColorAt,
+  metamerLine,
+  metamerPosition,
   paletteScore,
   relativeLuminance,
   simulate,
   type Hsl,
+  type MetamerLine,
   type Metamer,
   type Sim,
   type XY,
@@ -27,6 +32,13 @@ const MAX_ENTRIES = 20;
 const SOFT_CAP = 12;
 const COALESCE_MS = 500; // rapid same-source changes within this window = one undo step
 const MAX_HISTORY = 100;
+
+// The optimizer and palette score weight human and cat separation equally. This
+// used to be a user-facing "optimize for" slider; it's now fixed at the tool's
+// core premise — palettes that stay distinct for both. State still carries a
+// catWeight field (so older saved palettes/URLs decode), but the app drives the
+// solve and the score from this constant so the two never drift apart.
+const CAT_WEIGHT = 0.5;
 
 /** Normalize a 3- or 6-digit hex (with or without leading #) to "#rrggbb", or null. */
 function normHex(raw: string): string | null {
@@ -165,11 +177,27 @@ function loadInitial(): State {
   return DEFAULT_STATE;
 }
 
+type Theme = 'light' | 'dark';
+/** Page light/dark theme — an independent, persisted UI preference, no longer tied
+ *  to the map background. First run with nothing saved falls back to what the map
+ *  background used to imply, so the page looks unchanged the first time after the
+ *  two were decoupled. */
+function loadTheme(bg: string): Theme {
+  try {
+    const t = localStorage.getItem('catsafe-theme');
+    if (t === 'light' || t === 'dark') return t;
+  } catch {
+    /* ignore */
+  }
+  return isLightBackground(bg) ? 'light' : 'dark';
+}
+
 // --- per-entry row -----------------------------------------------------------
 
-/** Numeric H/S/L field. The native spinner, ↑/↓ keys, and wheel-over all nudge
- *  by `step` (0.5); values carry one decimal place. Uncontrolled so the field
- *  owns its text buffer while typing — we only write back when `value` changes
+/** Numeric H/S/L field. The native spinner, ↑/↓ keys, and wheel-over all nudge by
+ *  `step`; holding Shift nudges by 1/10 of that for fine control. Values carry up to
+ *  two decimals (the second only when a Shift step lands one). Uncontrolled so the
+ *  field owns its text buffer while typing — we only write back when `value` changes
  *  from outside (and the field isn't focused). */
 function HslInput(props: {
   label: string;
@@ -183,16 +211,26 @@ function HslInput(props: {
   const { label, title, value, min, max, step, onChange } = props;
   const ref = useRef<HTMLInputElement>(null);
 
+  // One decimal normally; a second only when a fine (Shift) step produced one.
+  const fmt = (v: number) => v.toFixed(2).replace(/0$/, '');
+
   useEffect(() => {
     const el = ref.current;
-    if (el && document.activeElement !== el) el.value = value.toFixed(1);
+    if (el && document.activeElement !== el) el.value = fmt(value);
   }, [value]);
 
-  // Clamp to range and snap to one decimal so the stored HSL matches the display.
+  // Clamp to range and snap to 0.01 so Shift's 1/10 steps (e.g. 0.05) survive.
   const commit = (raw: string) => {
     const n = parseFloat(raw);
     if (!Number.isFinite(n)) return;
-    onChange(Math.round(Math.min(max, Math.max(min, n)) * 10) / 10);
+    onChange(Math.round(Math.min(max, Math.max(min, n)) * 100) / 100);
+  };
+
+  // Point the native stepper at a full or 1/10 (Shift) step before it acts, so the
+  // wheel, spinner, and ↑/↓ keys all honor Shift through one code path.
+  const applyStep = (shift: boolean) => {
+    const el = ref.current;
+    if (el) el.step = String(shift ? step / 10 : step);
   };
 
   // Drive the wheel through the native stepper so it snaps and clamps exactly
@@ -201,6 +239,7 @@ function HslInput(props: {
     const el = ref.current;
     if (!el) return;
     e.preventDefault();
+    applyStep(e.shiftKey);
     if (e.deltaY < 0) el.stepUp();
     else el.stepDown();
     commit(el.value);
@@ -217,11 +256,15 @@ function HslInput(props: {
         min={min}
         max={max}
         step={step}
-        defaultValue={value.toFixed(1)}
+        defaultValue={fmt(value)}
         onInput={(e) => commit((e.target as HTMLInputElement).value)}
         onWheel={onWheel}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp' || e.key === 'ArrowDown') applyStep(e.shiftKey);
+        }}
+        onMouseDown={(e) => applyStep(e.shiftKey)}
         onBlur={(e) => {
-          (e.target as HTMLInputElement).value = value.toFixed(1);
+          (e.target as HTMLInputElement).value = fmt(value);
         }}
       />
     </label>
@@ -341,7 +384,7 @@ function EntryRow(props: {
       <div class="swatches">
         <div
           class="swatch interactive"
-          style={{ background: entry.color, color: labelColor(entry.color) }}
+          style={{ background: entry.color, color: legibleTextOn(entry.color) }}
           onClick={onHumanClick}
           onDblClick={onHumanDblClick}
           title="Click to copy · double-click to edit"
@@ -372,7 +415,7 @@ function EntryRow(props: {
         </div>
         <div
           class="swatch interactive"
-          style={{ background: cat, color: labelColor(cat) }}
+          style={{ background: cat, color: legibleTextOn(cat) }}
           onClick={() => flashCopied('cat', cat)}
           title="Click to copy"
         >
@@ -425,6 +468,212 @@ function EntryRow(props: {
   );
 }
 
+// --- selected-color bar ------------------------------------------------------
+
+/** Edit controls for the dot the user clicked in either plot. A trimmed EntryRow:
+ *  the same human/cat swatches and H/S/L fields, plus a metamer slider that moves
+ *  the color along the red↔green axis a cat can't see (cat color held constant).
+ *  No lock/remove. Faded with a "no selection" message when nothing is selected. */
+function SelectedColorBar(props: {
+  entry: Entry | null;
+  label: string;
+  bg: string;
+  minContrast: number;
+  onEdit: (id: string, color: string, coalesceKey?: string) => void;
+  /** "Sync" the cat plot's metamer-shading slider to this color's metamer position. */
+  onSyncMetamer: (pos: number) => void;
+}) {
+  const { entry, label, bg, minContrast, onEdit, onSyncMetamer } = props;
+  // A neutral placeholder keeps the (faded, inert) controls rendered when nothing
+  // is selected, so the bar holds its height instead of collapsing.
+  const color = entry?.color ?? '#888888';
+  const cat = catHex(color);
+  // WCAG contrast of the selected color against the map background (same as the
+  // per-row readout); reads red when it can't clear the minimum.
+  const cr = contrastRatio(color, bg);
+  const lowContrast = cr < minContrast;
+
+  // Local HSL triplet for exact 0.5 nudges (same rationale as EntryRow); re-synced
+  // when the color changes from outside — new selection, metamer slide, or undo.
+  const [hsl, setHsl] = useState<Hsl>(() => hexToHsl(color));
+  const lastEmitted = useRef(color);
+  useEffect(() => {
+    if (color !== lastEmitted.current) {
+      setHsl(hexToHsl(color));
+      lastEmitted.current = color;
+    }
+  }, [color]);
+  const setChannel = (patch: Partial<Hsl>) => {
+    if (!entry) return;
+    const next = { ...hsl, ...patch };
+    setHsl(next);
+    const hex = hslToHex(next);
+    lastEmitted.current = hex;
+    onEdit(entry.id, hex, `hsl:${entry.id}`);
+  };
+
+  // The in-gamut metamer segment through this color's cat location. Sliding it
+  // rewrites the human color along MET_D while the two cat cone catches — and so
+  // the cat dot's position — stay put.
+  //
+  // The line is ANCHORED in a ref, not re-derived from `color` every render. A
+  // committed color is 8-bit quantized, so catSpace(hex) lands a hair off the line;
+  // re-deriving from it each drag step would let the line — and the cat dot — drift
+  // cumulatively (loc += ε every commit), meandering badly on slow drags and
+  // stalling once the wander clamps into the gamut edge (line → null). With a fixed
+  // line, each commit is a single bounded error off loc, never accumulating. We
+  // re-anchor only when `color` changes for a reason OTHER than our own metamer
+  // commit — new selection, H/S/L edit, undo, recompute — tracked via metaCommitted.
+  const metaCommitted = useRef<string | null>(null);
+  const metaAnchor = useRef<{ src: string; line: MetamerLine | null }>({ src: '', line: null });
+  if (metaAnchor.current.src !== color && color !== metaCommitted.current) {
+    metaAnchor.current = { src: color, line: metamerLine(catSpace(color)) };
+    metaCommitted.current = null;
+  }
+  const line = metaAnchor.current.line;
+  // Degenerate (e.g. near-black, where 8-bit resolves no spread) → disable the slider.
+  const metaRange = line ? line.tmax - line.tmin : 0;
+  const metaPos = line ? metamerPosition(line, color) : 0.5;
+  const setMeta = (s: number) => {
+    if (!entry || !line) return;
+    const hex = metamerColorAt(line, s);
+    metaCommitted.current = hex;
+    // Unlike setChannel, don't mark this hex as "self-emitted" for the H/S/L sync:
+    // the fields aren't what changed, so they re-sync to the new color below.
+    onEdit(entry.id, hex, `meta:${entry.id}`);
+  };
+
+  // The thumb is uncontrolled (like HslInput) for a smooth drag: write its position
+  // imperatively when the color moves from outside the slider, but never mid-drag
+  // (skip while it's focused), so a controlled re-render can't fight the cursor.
+  const metaRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = metaRef.current;
+    if (el && document.activeElement !== el) el.value = String(metaPos);
+  }, [metaPos]);
+
+  // Click a swatch to copy its hex (matches the palette rows).
+  const [copied, setCopied] = useState<'human' | 'cat' | null>(null);
+  const copyTimer = useRef<number | null>(null);
+  const flashCopied = (which: 'human' | 'cat', hex: string) => {
+    navigator.clipboard?.writeText(hex);
+    setCopied(which);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopied(null), 1000);
+  };
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+
+  // Hex field: owns its text while focused, commits any valid hex live (coalesced into
+  // one undo step), and re-syncs to the color when it changes from outside the field.
+  const [hexDraft, setHexDraft] = useState(color);
+  const hexRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (document.activeElement !== hexRef.current) setHexDraft(color);
+  }, [color]);
+  const onHexInput = (raw: string) => {
+    setHexDraft(raw);
+    const norm = normHex(raw);
+    if (norm && entry) onEdit(entry.id, norm, `hex:${entry.id}`);
+  };
+
+  return (
+    <div class={`selected-bar${entry ? '' : ' empty'}`}>
+      <div class="selected-head">
+        Selected color{entry && <span class="selected-code"> · line {label}</span>}
+      </div>
+      <div class="selected-body">
+        <div class="selected-swatch-col">
+          <div class="swatches">
+            <div
+              class="swatch interactive"
+              style={{ background: color, color: legibleTextOn(color) }}
+              onClick={() => entry && flashCopied('human', color)}
+              title="Click to copy"
+            >
+              <span class="sw-label">human</span>
+              <span class="sw-hex">{copied === 'human' ? 'copied ✓' : color}</span>
+            </div>
+            <div
+              class="swatch interactive"
+              style={{ background: cat, color: legibleTextOn(cat) }}
+              onClick={() => entry && flashCopied('cat', cat)}
+              title="Click to copy"
+            >
+              <span class="sw-label">cat</span>
+              <span class="sw-hex">{copied === 'cat' ? 'copied ✓' : cat}</span>
+            </div>
+          </div>
+          <span
+            class={`contrast selected-contrast${lowContrast ? ' bad' : ''}`}
+            title="WCAG contrast vs map background"
+          >
+            ◐ {cr.toFixed(1)}:1
+          </span>
+        </div>
+
+        <div class="selected-controls">
+          <div class="hsl-group">
+            <input
+              ref={hexRef}
+              class="hex-input"
+              type="text"
+              spellcheck={false}
+              value={hexDraft}
+              disabled={!entry}
+              aria-label="Hex color"
+              onInput={(e) => onHexInput((e.target as HTMLInputElement).value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+              onBlur={() => setHexDraft(color)}
+            />
+            <HslInput label="H" title="Hue (0–360°)" value={hsl.h} min={0} max={360} step={1} onChange={(h) => setChannel({ h })} />
+            <HslInput label="S" title="Saturation (0–100%)" value={hsl.s} min={0} max={100} step={0.5} onChange={(s) => setChannel({ s })} />
+            <HslInput label="L" title="Lightness (0–100%)" value={hsl.l} min={0} max={100} step={0.5} onChange={(l) => setChannel({ l })} />
+          </div>
+          <div class="metamer-control">
+            <label for="sel-metamer">Slide along metamer — cat sees no change</label>
+            <div class="slider-row">
+              <span>greener</span>
+              <input
+                ref={metaRef}
+                id="sel-metamer"
+                type="range"
+                min="0"
+                max="1"
+                step="0.005"
+                defaultValue={String(metaPos)}
+                disabled={!entry || metaRange < 1e-4}
+                aria-label="Move the selected color along its metamer (the red–green axis a cat can't see)"
+                onInput={(e) => setMeta(parseFloat((e.target as HTMLInputElement).value))}
+              />
+              <span>redder</span>
+              <button
+                class="mini sync-btn"
+                disabled={!entry || metaRange < 1e-4}
+                title="Set the cat plot's metamer-shading slider to this color's metamer position"
+                onClick={() => onSyncMetamer(metaRef.current ? parseFloat(metaRef.current.value) : metaPos)}
+              >
+                Sync
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {!entry && (
+        <div class="selected-empty">
+          <span>No color selected — click a dot in either plot to edit it.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- app ---------------------------------------------------------------------
 
 type HistState = { present: State; past: State[]; future: State[] };
@@ -437,8 +686,15 @@ export function App() {
   const [loadErr, setLoadErr] = useState('');
   // A spot the user clicked in the cat plot, plus the metamer colors there.
   const [pick, setPick] = useState<{ loc: XY; screen: { x: number; y: number }; metamers: Metamer[] } | null>(null);
+  // The palette entry currently selected (by clicking its dot), edited in the
+  // selected-color bar under the plots. Tracked by id so it survives reordering.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Page light/dark theme — decoupled from the map background, toggled in the
+  // toolbar and persisted in localStorage.
+  const [theme, setTheme] = useState<Theme>(() => loadTheme(hist.present.background));
+  const toggleTheme = () => setTheme((t) => (t === 'light' ? 'dark' : 'light'));
   const state = hist.present;
-  const { entries, catWeight, background, minContrast } = state;
+  const { entries, background, minContrast } = state;
   const name = state.name ?? ''; // legacy saved states predate this field
   const canUndo = hist.past.length > 0;
   const canRedo = hist.future.length > 0;
@@ -475,16 +731,29 @@ export function App() {
     );
   };
 
-  // Mirror the map background under test onto the whole page. When it's light
-  // (e.g. white), flip the UI chrome to a light surface so palette colors are
-  // judged in the same context a real map gives them — a dark page would skew
-  // how the colors read. useLayoutEffect avoids a dark→light flash on load
-  // (the default background is white).
+  // The map background colors the bullet panel (so the palette is seen on the
+  // surface it'll sit on); the page light/dark theme is now an independent toggle.
+  // --page-bg carries the tested color to the bullet panel; the `light` class
+  // applies the chosen theme. useLayoutEffect applies both before paint to avoid a
+  // theme flash on load.
   useLayoutEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--page-bg', background);
-    root.classList.toggle('light-map', isLightBackground(background));
-  }, [background]);
+    // The cat-plot "below contrast" wash is tied to the map, not the page theme:
+    // the map's own contrasting ink (black on a light map, white on a dark one), so
+    // it always dims/marks those spots rather than brightening them in dark theme.
+    root.style.setProperty('--low-contrast-wash', legibleTextOn(background));
+    root.classList.toggle('light', theme === 'light');
+  }, [background, theme]);
+
+  // Persist the theme preference (separate key from the palette state).
+  useEffect(() => {
+    try {
+      localStorage.setItem('catsafe-theme', theme);
+    } catch {
+      /* ignore */
+    }
+  }, [theme]);
 
   useEffect(() => {
     const enc = encode(state);
@@ -529,7 +798,7 @@ export function App() {
     () => entries.map((e) => ({ ...simulate(e.color), hex: e.color })),
     [entries],
   );
-  const score = useMemo(() => paletteScore(sims, catWeight), [sims, catWeight]);
+  const score = useMemo(() => paletteScore(sims, CAT_WEIGHT), [sims]);
   const [wi, wj] = score.worst;
 
   const update = (patch: Partial<State>, key?: string) => apply((s) => ({ ...s, ...patch }), key);
@@ -567,7 +836,7 @@ export function App() {
         const colors = optimizePalette({
           anchors,
           freeCount,
-          catWeight: s.catWeight,
+          catWeight: CAT_WEIGHT,
           background: s.background,
           minContrast: s.minContrast,
         });
@@ -661,9 +930,53 @@ export function App() {
   // luminance so the per-pixel test is just a metamer solve; re-memoize when the
   // background, threshold, or shown metamer changes.
   const bgLum = useMemo(() => relativeLuminance(background), [background]);
+
+  // Index of the selected entry (computed here so the "too close" mask below can skip
+  // it; reused for the plot highlight and selected-color bar further down).
+  const selIdx = selectedId ? entries.findIndex((e) => e.id === selectedId) : -1;
+
+  // Two independent cat-plot dim overlays, each a checkbox in the cat plot's footer:
+  //  • "Shade too close" — dim cone-space within (min separation) of any OTHER palette
+  //    color. The selected color's own circle is skipped (you're moving it), and all
+  //    circles show when nothing is selected; so the still-bright region is exactly
+  //    where the selected color can go without shrinking the closest-pair separation.
+  //  • "Shade low contrast" — dim cone-space whose color can't meet the WCAG contrast
+  //    threshold against the map background (on by default — this was the always-on wash).
+  // The two are OR'd into one mask. Gated deps keep each free while its toggle is OFF — in
+  // particular "too close" off → closerLocs stays null, so a color edit can't flip
+  // catDimCb's identity, preserving the metamer-drag raster fix. While "too close" is ON
+  // the mask follows the colors, so a color edit re-rasters the dim layer (accepted).
+  const [shadeTooClose, setShadeTooClose] = useState(false);
+  const [shadeLowContrast, setShadeLowContrast] = useState(true);
+  const catLocs = useMemo(() => sims.map((s) => s.catXY), [sims]);
+  const catMinSep = useMemo(() => {
+    let m = Infinity;
+    for (let i = 0; i < catLocs.length; i++) {
+      for (let j = i + 1; j < catLocs.length; j++) {
+        const d = Math.hypot(catLocs[i].x - catLocs[j].x, catLocs[i].y - catLocs[j].y);
+        if (d < m) m = d;
+      }
+    }
+    return m;
+  }, [catLocs]);
+  const closerLocs = useMemo(
+    () => (!shadeTooClose ? null : selIdx >= 0 ? catLocs.filter((_, i) => i !== selIdx) : catLocs),
+    [shadeTooClose, catLocs, selIdx],
+  );
+  const closerR2 = shadeTooClose && Number.isFinite(catMinSep) ? catMinSep * catMinSep : 0;
   const catDimCb = useCallback(
-    (loc: XY) => catShadeBelowContrast(loc, metamerS, bgLum, minContrast),
-    [metamerS, bgLum, minContrast],
+    (loc: XY) => {
+      if (shadeLowContrast && catShadeBelowContrast(loc, metamerS, bgLum, minContrast)) return true;
+      if (closerR2 > 0 && closerLocs) {
+        for (const p of closerLocs) {
+          const dx = p.x - loc.x;
+          const dy = p.y - loc.y;
+          if (dx * dx + dy * dy < closerR2) return true;
+        }
+      }
+      return false;
+    },
+    [shadeLowContrast, metamerS, bgLum, minContrast, closerLocs, closerR2],
   );
 
   // Clicked spot → nearest palette color on the cat plot: the dotted line we draw
@@ -679,6 +992,15 @@ export function App() {
   const onPickCat = (loc: XY, screen: { x: number; y: number }) =>
     setPick({ loc, screen, metamers: catMetamers(loc) });
 
+  // Selecting a dot (from either plot) opens it in the selected-color bar and
+  // dismisses any metamer popover, so the two interactions never overlap. Clicking
+  // the already-selected dot toggles it back off (deselect).
+  const selectEntry = (id: string) => {
+    setSelectedId((cur) => (cur === id ? null : id));
+    setPick(null);
+  };
+  const selectedEntry = selIdx >= 0 ? entries[selIdx] : null;
+
   return (
     <div class="app">
       <header>
@@ -686,118 +1008,191 @@ export function App() {
         <p class="tagline">
           Transit-line color palettes that stay distinct for humans <em>and</em> cats.
         </p>
-        <div class="name-control">
-          <label for="palette-name">Palette name</label>
-          <input
-            id="palette-name"
-            class="palette-name"
-            type="text"
-            value={name}
-            spellcheck={false}
-            maxLength={60}
-            placeholder="Untitled palette"
-            aria-label="Palette name"
-            onInput={(e) => update({ name: (e.target as HTMLInputElement).value }, 'name')}
-          />
+        <div class="header-row">
+          <div class="name-control">
+            <label for="palette-name">Palette name</label>
+            <input
+              id="palette-name"
+              class="palette-name"
+              type="text"
+              value={name}
+              spellcheck={false}
+              maxLength={60}
+              placeholder="Untitled palette"
+              aria-label="Palette name"
+              onInput={(e) => update({ name: (e.target as HTMLInputElement).value }, 'name')}
+            />
+          </div>
+          <div class="exports">
+            <label>Load / export</label>
+            <div class="export-row">
+              <button class="mini" onClick={openLoad}>
+                load…
+              </button>
+              <span class="export-sep" />
+              <button class="mini" onClick={exportHex}>
+                hex
+              </button>
+              <button class="mini" onClick={exportCss}>
+                css
+              </button>
+              <button class="mini" onClick={exportJson}>
+                json
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
-      <section class="controls">
-        <div class="control slider-control">
-          <label>Optimize for</label>
-          <div class="slider-row">
-            <span>Human</span>
+      <section class="toolbar">
+        <button class="primary" disabled={busy} onClick={recompute}>
+          {busy ? 'Computing…' : '↻ Recompute'}
+        </button>
+        <button onClick={onAdd} disabled={entries.length >= MAX_ENTRIES}>
+          + Add line
+        </button>
+
+        <span class="toolbar-sep" />
+
+        <div class="bg-cluster">
+          <span class="tb-label">Map bg</span>
+          <input
+            type="color"
+            value={background}
+            onInput={(e) => update({ background: (e.target as HTMLInputElement).value }, 'bg')}
+          />
+          <button class="mini" onClick={() => update({ background: '#ffffff' })}>
+            white
+          </button>
+          <button class="mini" onClick={() => update({ background: '#111317' })}>
+            dark
+          </button>
+          <label class="contrast-field" title="Minimum WCAG contrast colors must keep against the map background">
+            <span class="tb-label">contrast {minContrast.toFixed(1)}:1</span>
             <input
               type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={catWeight}
-              onInput={(e) => update({ catWeight: parseFloat((e.target as HTMLInputElement).value) }, 'slider:w')}
+              min="1"
+              max="7"
+              step="0.5"
+              value={minContrast}
+              onInput={(e) => update({ minContrast: parseFloat((e.target as HTMLInputElement).value) }, 'slider:contrast')}
             />
-            <span>Cat</span>
-          </div>
-          <div class="slider-val">
-            {Math.round((1 - catWeight) * 100)}% human · {Math.round(catWeight * 100)}% cat
-          </div>
+          </label>
         </div>
 
-        <div class="control">
-          <label>Map background</label>
-          <div class="bg-row">
-            <input
-              type="color"
-              value={background}
-              onInput={(e) => update({ background: (e.target as HTMLInputElement).value }, 'bg')}
-            />
-            <button class="mini" onClick={() => update({ background: '#ffffff' })}>
-              white
-            </button>
-            <button class="mini" onClick={() => update({ background: '#111317' })}>
-              dark
-            </button>
-          </div>
-        </div>
-
-        <div class="control">
-          <label>Min contrast: {minContrast.toFixed(1)}:1</label>
-          <input
-            type="range"
-            min="1"
-            max="7"
-            step="0.5"
-            value={minContrast}
-            onInput={(e) => update({ minContrast: parseFloat((e.target as HTMLInputElement).value) }, 'slider:contrast')}
-          />
-        </div>
-
-        <div class="control score-control">
-          <label>Min separation (ΔS, JND)</label>
-          <div class="score">{score.min === Infinity ? '—' : score.min.toFixed(1)}</div>
-          <div class="score-sub">
-            {wi >= 0 ? `worst pair: lines ${codeOf(entries[wi], wi)} & ${codeOf(entries[wj], wj)}` : 'add 2+ colors'}
-          </div>
-        </div>
-
-        <div class="control actions">
-          <button class="primary" disabled={busy} onClick={recompute}>
-            {busy ? 'Computing…' : '↻ Recompute'}
+        <div class="tb-history">
+          <button class="mini" disabled={!canUndo} onClick={undo} title="Undo (Ctrl+Z)">
+            ↶ undo
           </button>
-          <button onClick={onAdd} disabled={entries.length >= MAX_ENTRIES}>
-            + Add line
+          <button class="mini" disabled={!canRedo} onClick={redo} title="Redo (Ctrl+Shift+Z)">
+            ↷ redo
+          </button>
+          <button
+            class="mini theme-toggle"
+            onClick={toggleTheme}
+            title={`Switch to ${theme === 'light' ? 'Night (dark)' : 'Sun (light)'} theme`}
+            aria-label={`Switch to ${theme === 'light' ? 'night' : 'sun'} theme`}
+          >
+            {theme === 'light' ? '🌙 Night' : '☀ Sun'}
           </button>
         </div>
+      </section>
 
-        <div class="control exports">
-          <label>Load / export</label>
-          <div class="export-row">
-            <button class="mini" onClick={openLoad}>
-              load…
-            </button>
-            <span class="export-sep" />
-            <button class="mini" onClick={exportHex}>
-              hex
-            </button>
-            <button class="mini" onClick={exportCss}>
-              css
-            </button>
-            <button class="mini" onClick={exportJson}>
-              json
-            </button>
-          </div>
-        </div>
+      <div class="bullet-row" role="group" aria-label="Palette colors — click a bullet to select that line">
+        {entries.map((e, i) => (
+          <button
+            key={e.id}
+            class={`bullet${selIdx === i ? ' selected' : ''}`}
+            style={{ background: e.color, color: legibleTextOn(e.color) }}
+            title={`Line ${codeOf(e, i)} · ${e.color}`}
+            aria-label={`Select line ${codeOf(e, i)}`}
+            aria-pressed={selIdx === i}
+            onClick={() => selectEntry(e.id)}
+          >
+            {codeOf(e, i)}
+          </button>
+        ))}
+        {entries.length === 0 && <span class="bullet-empty">No colors yet.</span>}
+      </div>
 
-        <div class="control">
-          <label>History</label>
-          <div class="export-row">
-            <button class="mini" disabled={!canUndo} onClick={undo} title="Undo (Ctrl+Z)">
-              ↶ undo
-            </button>
-            <button class="mini" disabled={!canRedo} onClick={redo} title="Redo (Ctrl+Shift+Z)">
-              ↷ redo
-            </button>
+      <SelectedColorBar
+        entry={selectedEntry}
+        label={selectedEntry ? codeOf(selectedEntry, selIdx) : ''}
+        bg={background}
+        minContrast={minContrast}
+        onEdit={onEdit}
+        onSyncMetamer={setMetamerS}
+      />
+
+      <section class="scatter-pair">
+        <Scatter
+          title="Human — OKLab chroma"
+          points={humanPts}
+          xLabel="green ↔ red"
+          yLabel="blue ↔ yellow"
+          unit="a/b"
+          onSelect={(i) => selectEntry(entries[i].id)}
+          selected={selIdx}
+          onBackgroundClick={() => setSelectedId(null)}
+        />
+        <Scatter
+          title="Cat — RNL cone space (ΔS)"
+          points={catPts}
+          xLabel="yellow ↔ blue"
+          yLabel="dark ↔ light"
+          unit="ΔS"
+          gamutBoundary={catGamut}
+          onPick={onPickCat}
+          onSelect={(i) => selectEntry(entries[i].id)}
+          selected={selIdx}
+          onBackgroundClick={() => setSelectedId(null)}
+          marker={pick?.loc ?? null}
+          shade={catShadeCb}
+          dim={shadeTooClose || shadeLowContrast ? catDimCb : undefined}
+          measure={nearestCat ? { to: { x: nearestCat.pt.x, y: nearestCat.pt.y }, belowMinSep: pickBelowMin } : null}
+        >
+          <div class="metamer-control">
+            <label for="metamer-s">Cat-plot shading — metamer position</label>
+            <div class="slider-row">
+              <span>greener</span>
+              <input
+                id="metamer-s"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={metamerS}
+                aria-label="Metamer position along each spot's red-green spread"
+                onInput={(e) => setMetamerS(parseFloat((e.target as HTMLInputElement).value))}
+              />
+              <span>redder</span>
+            </div>
           </div>
-        </div>
+          <div class="shade-toggles">
+            <label
+              class="shade-toggle"
+              title="Dim cone-space within the palette's min separation of a color — a color placed in a dimmed (no-go) region would shrink the closest-pair separation. The selected color's own circle is skipped."
+            >
+              <input
+                type="checkbox"
+                checked={shadeTooClose}
+                onChange={(e) => setShadeTooClose((e.target as HTMLInputElement).checked)}
+              />
+              <span>Shade too close</span>
+            </label>
+            <label
+              class="shade-toggle"
+              title="Dim cone-space whose color can't meet the minimum WCAG contrast against the map background — it wouldn't be legible on the map."
+            >
+              <input
+                type="checkbox"
+                checked={shadeLowContrast}
+                onChange={(e) => setShadeLowContrast((e.target as HTMLInputElement).checked)}
+              />
+              <span>Shade low contrast</span>
+            </label>
+          </div>
+        </Scatter>
       </section>
 
       {entries.length > SOFT_CAP && (
@@ -807,6 +1202,7 @@ export function App() {
         </div>
       )}
 
+      <h2 class="palette-head">Palette</h2>
       <section class="palette">
         {entries.map((e, i) => (
           <EntryRow
@@ -824,53 +1220,6 @@ export function App() {
         ))}
         {entries.length === 0 && <div class="empty">No colors yet — add a line.</div>}
       </section>
-
-      <section class="scatter-pair">
-        <Scatter
-          title="Human — OKLab chroma"
-          points={humanPts}
-          xLabel="green ↔ red"
-          yLabel="blue ↔ yellow"
-          unit="a/b"
-        />
-        <Scatter
-          title="Cat — RNL cone space (ΔS)"
-          points={catPts}
-          xLabel="yellow ↔ blue"
-          yLabel="dark ↔ light"
-          unit="ΔS"
-          gamutBoundary={catGamut}
-          note={`Hatched: cone-space no sRGB color can reach · Shaded: contrast below ${minContrast.toFixed(1)}:1 on this background`}
-          onPick={onPickCat}
-          marker={pick?.loc ?? null}
-          shade={catShadeCb}
-          dim={catDimCb}
-          measure={nearestCat ? { to: { x: nearestCat.pt.x, y: nearestCat.pt.y }, belowMinSep: pickBelowMin } : null}
-          hint="Click a spot — or tab to a line — to see the colors a cat sees there"
-        />
-      </section>
-
-      <div class="metamer-shade">
-        <label for="metamer-s">Cat-plot shading — metamer position</label>
-        <div class="slider-row">
-          <span>greener</span>
-          <input
-            id="metamer-s"
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={metamerS}
-            aria-label="Metamer position along each spot's red-green spread"
-            onInput={(e) => setMetamerS(parseFloat((e.target as HTMLInputElement).value))}
-          />
-          <span>redder</span>
-        </div>
-        <div class="slider-val">
-          The cat plot is tinted with one human color per spot. Every spot holds a whole line of colors a cat
-          can't tell apart; 0 and 1 are that spot's own gamut ends along the red↔green axis cats are blind to.
-        </div>
-      </div>
 
       {pick && (
         <MetamerPopup

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { labelColor, type Metamer, type XY } from '../color';
+import { legibleTextOn, type Metamer, type XY } from '../color';
 
 const W = 264; // popup width, also used to clamp it inside the viewport
 
@@ -126,7 +126,7 @@ export function MetamerPopup({
               <button
                 key={m.hex}
                 class="metamer-swatch"
-                style={{ background: m.hex, color: labelColor(m.hex) }}
+                style={{ background: m.hex, color: legibleTextOn(m.hex) }}
                 title={`Copy ${m.hex}`}
                 onClick={() => copy(m.hex)}
               >

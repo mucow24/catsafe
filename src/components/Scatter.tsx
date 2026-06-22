@@ -1,5 +1,6 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useId, useState } from 'preact/hooks';
-import { labelColor, type XY } from '../color';
+import { legibleTextOn, type XY } from '../color';
 
 export type Pt = { x: number; y: number; fill: string; label: string; humanHex: string; catHex: string };
 
@@ -67,6 +68,10 @@ export function Scatter({
   hint,
   shade,
   dim,
+  onSelect,
+  selected,
+  onBackgroundClick,
+  children,
 }: {
   title: string;
   points: Pt[];
@@ -98,6 +103,19 @@ export function Scatter({
   measure?: { to: XY; belowMinSep: boolean } | null;
   /** Small muted caption under the plot — e.g. a "click to inspect" hint. */
   hint?: string;
+  /** If set, clicking (or keying Enter/Space on) a dot selects it by index. Takes
+   *  precedence over `onPick` for dot clicks — the click stops there so picking an
+   *  empty spot and selecting a dot stay distinct gestures. */
+  onSelect?: (index: number) => void;
+  /** Index of the currently-selected dot, drawn with a highlight ring. */
+  selected?: number | null;
+  /** Called on a click in empty plot space (one that isn't on a dot — dots
+   *  stopPropagation) — e.g. to clear the selection. On the cat plot it fires
+   *  alongside onPick (which also inspects that spot). */
+  onBackgroundClick?: () => void;
+  /** Extra content rendered in the card footer, below the min-separation stat
+   *  (where note/hint would sit) — e.g. a plot-specific control. */
+  children?: ComponentChildren;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [shadeUrl, setShadeUrl] = useState<string | null>(null);
@@ -132,12 +150,28 @@ export function Scatter({
   const sx = (x: number) => ox + plot / 2 + (x - cxD) * scale;
   const sy = (y: number) => oy + plot / 2 - (y - cyD) * scale;
 
+  // Geometry the shade/dim raster keys off, snapped to a coarse grid (~3 raster px
+  // for the center, 2 sig figs for the zoom). Editing the selected color via the
+  // metamer slider nudges its dot — and thus this autoscaled geometry — by a
+  // sub-pixel, sub-JND amount every step; keyed on the raw floats, each step would
+  // re-run the expensive per-pixel raster (a metamer solve per pixel + toDataURL).
+  // The dots, gamut and axes still use the exact geometry above, and the shade is a
+  // smooth field clipped to the exact gamut, so the ≤~2px content shift this snap
+  // introduces is invisible — while the key holds steady through the jitter. Effects
+  // depend on the integer cells (stable), not the float products (whose grid jitters).
+  const gx = half / 32;
+  const cellX = Math.round(cxD / gx);
+  const cellY = Math.round(cyD / gx);
+  const rScale = plot / (2 * Number(half.toPrecision(2)));
+  const rCxD = cellX * gx;
+  const rCyD = cellY * gx;
+
   // Raster the `shade` fill into a data-URL once per (geometry, shade) change. Bypasses
   // the discrete catMetamers path: here we want a continuous color per pixel.
   useEffect(() => {
     setShadeUrl(
       shade
-        ? rasterField({ ox, oy, plot, scale, cxD, cyD }, (x, y, data, o) => {
+        ? rasterField({ ox, oy, plot, scale: rScale, cxD: rCxD, cyD: rCyD }, (x, y, data, o) => {
             const rgb = shade({ x, y });
             if (rgb) {
               data[o] = rgb[0];
@@ -148,7 +182,7 @@ export function Scatter({
           })
         : null,
     );
-  }, [shade, ox, oy, plot, scale, cxD, cyD]);
+  }, [shade, ox, oy, plot, rScale, cellX, cellY]);
 
   // Raster the `dim` mask as opaque white where the spot is shaded out, transparent
   // elsewhere; an SVG <mask> then paints the themed wash through it. Re-renders when
@@ -156,14 +190,14 @@ export function Scatter({
   useEffect(() => {
     setDimUrl(
       dim
-        ? rasterField({ ox, oy, plot, scale, cxD, cyD }, (x, y, data, o) => {
+        ? rasterField({ ox, oy, plot, scale: rScale, cxD: rCxD, cyD: rCyD }, (x, y, data, o) => {
             if (dim({ x, y })) {
               data[o] = data[o + 1] = data[o + 2] = data[o + 3] = 255;
             }
           })
         : null,
     );
-  }, [dim, ox, oy, plot, scale, cxD, cyD]);
+  }, [dim, ox, oy, plot, rScale, cellX, cellY]);
 
   // Polygon tracing the in-gamut region (plot coords). Reused to clip the shade
   // layer to a crisp vector edge and to punch the out-of-gamut hatch.
@@ -172,6 +206,9 @@ export function Scatter({
     ? gamutBoundary!.map((p, i) => `${i ? 'L' : 'M'}${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`).join('') + 'Z'
     : '';
 
+  // Dots are interactive when either gesture is wired: selecting a dot, or picking
+  // an empty spot. Drives focusability and the AT role on the svg + dot targets.
+  const interactive = !!(onSelect || onPick);
   const showVAxis = sx(0) >= ox && sx(0) <= ox + plot;
   const showHAxis = sy(0) >= oy && sy(0) <= oy + plot;
   const cp = closestPair(points);
@@ -204,18 +241,26 @@ export function Scatter({
     onPick({ x: p.x, y: p.y }, { x: r.x + r.width / 2, y: r.y + r.height / 2 });
   };
 
+  // A click reaches the svg only when it missed every dot (dots stopPropagation),
+  // so it's a click on empty plot space: clear the selection, and — when pickable —
+  // also inspect that spot (handleClick no-ops for clicks outside the plot box).
+  const onSvgClick = (e: MouseEvent) => {
+    onBackgroundClick?.();
+    if (onPick) handleClick(e);
+  };
+
   return (
     <div class="scatter">
       <div class="scatter-title">{title}</div>
       <svg
         viewBox={`0 0 ${S} ${S}`}
         class={`scatter-svg${onPick ? ' pickable' : ''}`}
-        // A plain image when static; a labelled group when pickable, so the
+        // A plain image when static; a labelled group when interactive, so the
         // focusable dot-buttons inside stay exposed to assistive tech (role="img"
         // would prune them).
-        role={onPick ? 'group' : 'img'}
+        role={interactive ? 'group' : 'img'}
         aria-label={title}
-        onClick={onPick ? handleClick : undefined}
+        onClick={onPick || onBackgroundClick ? onSvgClick : undefined}
       >
         <defs>
           <clipPath id={clipId}>
@@ -296,33 +341,65 @@ export function Scatter({
         )}
         {points.map((p, i) => (
           <g key={p.label}>
+            {selected === i && (
+              // Highlight ring around the selected dot — shown in both plots.
+              <circle cx={sx(p.x)} cy={sy(p.y)} r="9.5" class="dot-selected" />
+            )}
             <circle cx={sx(p.x)} cy={sy(p.y)} r="6" fill={p.fill} stroke="#0007" stroke-width="1" />
             <text
               x={sx(p.x)}
               y={sy(p.y)}
               class="pt-label"
-              fill={labelColor(p.fill)}
+              fill={legibleTextOn(p.fill)}
               text-anchor="middle"
               dominant-baseline="central"
             >
               {p.label}
             </text>
             {/* larger transparent hit target so the small dots are easy to hover,
-                and — when pickable — a keyboard-focusable button to inspect this dot */}
+                and — when interactive — a keyboard-focusable button to select or
+                inspect this dot */}
             <circle
               cx={sx(p.x)}
               cy={sy(p.y)}
               r="11"
               fill="transparent"
-              class={onPick ? 'pick-target' : undefined}
-              tabIndex={onPick ? 0 : undefined}
-              role={onPick ? 'button' : undefined}
-              aria-label={onPick ? `Show the colors a cat sees at line ${p.label}` : undefined}
+              class={interactive ? 'pick-target' : undefined}
+              tabIndex={interactive ? 0 : undefined}
+              role={interactive ? 'button' : undefined}
+              aria-label={
+                onSelect
+                  ? `Select line ${p.label}`
+                  : onPick
+                  ? `Show the colors a cat sees at line ${p.label}`
+                  : undefined
+              }
               onMouseEnter={() => setHover(i)}
               onMouseLeave={() => setHover((h) => (h === i ? null : h))}
-              onFocus={onPick ? () => setHover(i) : undefined}
-              onBlur={onPick ? () => setHover((h) => (h === i ? null : h)) : undefined}
-              onKeyDown={onPick ? (e) => handleKeyPick(e, p) : undefined}
+              onFocus={interactive ? () => setHover(i) : undefined}
+              onBlur={interactive ? () => setHover((h) => (h === i ? null : h)) : undefined}
+              // A dot click selects and stops there, so it never also fires the
+              // svg-level onPick (which would reopen a popover on the same gesture).
+              onClick={
+                onSelect
+                  ? (e) => {
+                      e.stopPropagation();
+                      onSelect(i);
+                    }
+                  : undefined
+              }
+              onKeyDown={
+                onSelect
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelect(i);
+                      }
+                    }
+                  : onPick
+                  ? (e) => handleKeyPick(e, p)
+                  : undefined
+              }
             />
           </g>
         ))}
@@ -366,12 +443,19 @@ export function Scatter({
       </svg>
       {cp && (
         <div class="scatter-stat">
-          min sep <strong>{fmt(cp.d)}{unit ? ` ${unit}` : ''}</strong> · lines {points[cp.i].label} &amp;{' '}
-          {points[cp.j].label}
+          <span class="stat-label">min separation</span>
+          <span class="stat-val">
+            {fmt(cp.d)}
+            {unit ? <span class="stat-unit"> {unit}</span> : null}
+          </span>
+          <span class="stat-lines">
+            closest pair: lines {points[cp.i].label} &amp; {points[cp.j].label}
+          </span>
         </div>
       )}
       {note && <div class="scatter-note">{note}</div>}
       {hint && <div class="scatter-hint">{hint}</div>}
+      {children}
     </div>
   );
 }
