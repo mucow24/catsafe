@@ -1196,23 +1196,18 @@ export function App() {
         onSyncMetamer={setMetamerS}
       />
 
-      <section class="scatter-pair">
-        <Scatter
-          title="Human — OKLab chroma"
-          points={humanPts}
-          xLabel="green ↔ red"
-          yLabel="blue ↔ yellow"
-          unit="a/b"
-          onSelect={(i) => selectEntry(entries[i].id)}
-          selected={selIdx}
-          onBackgroundClick={() => setSelectedId(null)}
-        />
+      <section class="cat-plot">
         <Scatter
           title="Cat — RNL cone space (ΔS)"
           points={catPts}
           xLabel="yellow ↔ blue"
           yLabel="dark ↔ light"
           unit="ΔS"
+          // Full palette-block width, with the colored region stretched horizontally.
+          // vbWidth sets the on-screen scale (dot/label size + card height — keep it so
+          // dots match a square plot); xStretch spreads the colored region wider.
+          vbWidth={500}
+          xStretch={2.5}
           gamutBoundary={catGamut}
           onPick={onPickCat}
           onSelect={(i) => selectEntry(entries[i].id)}
@@ -1292,6 +1287,19 @@ export function App() {
           />
         ))}
         {entries.length === 0 && <div class="empty">No colors yet — add a line.</div>}
+      </section>
+
+      <section class="human-plot">
+        <Scatter
+          title="Human — OKLab chroma"
+          points={humanPts}
+          xLabel="green ↔ red"
+          yLabel="blue ↔ yellow"
+          unit="a/b"
+          onSelect={(i) => selectEntry(entries[i].id)}
+          selected={selIdx}
+          onBackgroundClick={() => setSelectedId(null)}
+        />
       </section>
 
       {pick && (

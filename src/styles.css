@@ -474,15 +474,18 @@ input[type="color"] {
 }
 
 /* --- scatter plots --- */
-.scatter-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+/* The cat plot is the primary view: full content width (matching a palette block),
+   so it renders large. Its square SVG scales to fill, so the card is roughly as tall
+   as it is wide. */
+.cat-plot {
   margin-top: 24px;
   margin-bottom: 28px;
-  /* The cat card is taller (it carries the metamer slider in its footer); stretch
-     the human card to match so the two cards share one height, for consistency. */
-  align-items: stretch;
+}
+/* The human plot is a secondary reference, moved below the palette. Kept near its
+   old half-width footprint so it doesn't balloon to full width at the page bottom. */
+.human-plot {
+  margin-top: 28px;
+  max-width: 460px;
 }
 /* Metamer-position slider, sitting in the cat plot card's footer. */
 .metamer-control {
@@ -968,8 +971,8 @@ footer {
     grid-column: 1 / -1;
     flex-wrap: wrap;
   }
-  .scatter-pair {
-    grid-template-columns: 1fr;
+  .human-plot {
+    max-width: none;
   }
   /* On a narrow screen the floating card would cover the square plot and hide the
      crosshair it describes. Dock it to the bottom as a sheet instead — overrides
