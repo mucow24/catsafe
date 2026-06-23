@@ -1064,6 +1064,15 @@ export function App() {
     setPick(null);
   };
 
+  // Click a metamer swatch in the popover to set the selected color to that exact
+  // human hex, then dismiss. Only fires when a color is selected (swatches are inert
+  // otherwise); guarded here too so a stale call can't write with nothing selected.
+  const setSelectedColorTo = (hex: string) => {
+    if (!selectedEntry) return;
+    onEdit(selectedEntry.id, hex);
+    setPick(null);
+  };
+
   return (
     <div class="app">
       <header>
@@ -1294,6 +1303,7 @@ export function App() {
           belowMinSep={pickBelowMin}
           canMove={!!selectedEntry}
           onMoveHere={moveColorHere}
+          onPickColor={setSelectedColorTo}
           onClose={() => setPick(null)}
         />
       )}

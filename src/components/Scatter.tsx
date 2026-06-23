@@ -416,9 +416,8 @@ export function Scatter({
         )}
         {marker && (
           <g pointer-events="none" class="pick-marker" clip-path={`url(#${clipId})`}>
-            <circle cx={sx(marker.x)} cy={sy(marker.y)} r="7.5" class="pick-ring" />
-            <line x1={sx(marker.x) - 11} y1={sy(marker.y)} x2={sx(marker.x) + 11} y2={sy(marker.y)} class="pick-cross" />
-            <line x1={sx(marker.x)} y1={sy(marker.y) - 11} x2={sx(marker.x)} y2={sy(marker.y) + 11} class="pick-cross" />
+            {/* Same radius as a palette dot (r=6), drawn as a dashed unfilled ring. */}
+            <circle cx={sx(marker.x)} cy={sy(marker.y)} r="6" class="pick-ring" />
           </g>
         )}
         {hover != null && points[hover] && (
