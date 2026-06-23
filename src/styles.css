@@ -833,8 +833,16 @@ input[type="color"] {
   outline: none;
 }
 .metamer-close,
-.metamer-swatch {
+.metamer-swatch,
+.metamer-move {
   pointer-events: auto;
+}
+.metamer-move {
+  margin-top: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
 }
 .metamer-close {
   position: absolute;

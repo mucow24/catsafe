@@ -15,6 +15,8 @@ export function MetamerPopup({
   metamers,
   dist,
   belowMinSep,
+  canMove,
+  onMoveHere,
   onClose,
 }: {
   loc: XY;
@@ -24,6 +26,10 @@ export function MetamerPopup({
   dist: number | null;
   /** True when `dist` is below the palette's min separation — shown in red. */
   belowMinSep: boolean;
+  /** Whether a palette color is selected — gates the "Move color here" button. */
+  canMove: boolean;
+  /** Move the selected color to this location, keeping its metamer position. */
+  onMoveHere: () => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -136,6 +142,19 @@ export function MetamerPopup({
           </div>
         </>
       )}
+
+      <button
+        class="metamer-move"
+        disabled={!canMove}
+        title={
+          canMove
+            ? 'Move the selected color to this spot, keeping its metamer position'
+            : 'Select a color first'
+        }
+        onClick={onMoveHere}
+      >
+        Move color here
+      </button>
     </div>
   );
 }
