@@ -21,13 +21,16 @@ type Geo = { ox: number; oy: number; plot: number; scale: number; cxD: number; c
 
 /**
  * Rasterise a per-pixel field to a data-URL once, then draw it as one <image> that
- * scales with the SVG. A modest internal resolution is plenty — the fields here are
- * smooth and the vector gamut hatch redraws the crisp edge on top. `paint` gets each
- * pixel's data-space (x, y) and writes its RGBA bytes at `o`; leaving them 0 yields a
- * transparent pixel. Returns null when no canvas context is available.
+ * scales with the SVG. The raster is sized to the plot itself (~1 cell per viewBox
+ * unit), so a larger plot gets proportionally more pixels — a bigger plot is a crisper
+ * field, not a stretched one. The fields here are smooth and the vector gamut hatch
+ * redraws the crisp edge on top. `paint` gets each pixel's data-space (x, y) and writes
+ * its RGBA bytes at `o`; leaving them 0 yields a transparent pixel. Returns null when no
+ * canvas context is available.
  */
 function rasterField(geo: Geo, paint: (x: number, y: number, data: Uint8ClampedArray, o: number) => void): string | null {
-  const RES = 200;
+  const { ox, oy, plot, scale, cxD, cyD } = geo;
+  const RES = Math.max(1, Math.round(plot));
   const cv = document.createElement('canvas');
   cv.width = RES;
   cv.height = RES;
@@ -35,7 +38,6 @@ function rasterField(geo: Geo, paint: (x: number, y: number, data: Uint8ClampedA
   if (!ctx) return null;
   const img = ctx.createImageData(RES, RES);
   const data = img.data;
-  const { ox, oy, plot, scale, cxD, cyD } = geo;
   for (let j = 0; j < RES; j++) {
     const vy = oy + ((j + 0.5) / RES) * plot;
     const y = cyD - (vy - oy - plot / 2) / scale;
@@ -71,6 +73,7 @@ export function Scatter({
   onSelect,
   selected,
   onBackgroundClick,
+  size,
   children,
 }: {
   title: string;
@@ -113,6 +116,12 @@ export function Scatter({
    *  stopPropagation) — e.g. to clear the selection. On the cat plot it fires
    *  alongside onPick (which also inspects that spot). */
   onBackgroundClick?: () => void;
+  /** Square viewBox side, in viewBox units (default 240). The plot stays square and
+   *  equal-aspect; a larger value renders a bigger plot at `width:100%`. Combined with a
+   *  full-width container this gives more pixels per data unit — finer separation
+   *  between dots — while the dot/label sizes (fixed in viewBox units) render at the
+   *  same on-screen size, since pixels-per-unit is held constant by the wider container. */
+  size?: number;
   /** Extra content rendered in the card footer, below the min-separation stat
    *  (where note/hint would sit) — e.g. a plot-specific control. */
   children?: ComponentChildren;
@@ -124,7 +133,11 @@ export function Scatter({
   const hatchId = useId();
   const gamutClipId = useId();
   const dimMaskId = useId();
-  const S = 240;
+  // Square viewBox of side S. A larger S renders a bigger plot at `width:100%` — more
+  // pixels per data unit (finer dot separation) — while the dot/label sizes, fixed in
+  // viewBox units, render the same on-screen because the wider container keeps
+  // pixels-per-unit constant. Equal aspect throughout, so circles stay circles.
+  const S = size && size > 0 ? size : 240;
   const M = { l: 24, r: 10, t: 10, b: 22 };
   const boxW = S - M.l - M.r;
   const boxH = S - M.t - M.b;
@@ -416,9 +429,8 @@ export function Scatter({
         )}
         {marker && (
           <g pointer-events="none" class="pick-marker" clip-path={`url(#${clipId})`}>
-            <circle cx={sx(marker.x)} cy={sy(marker.y)} r="7.5" class="pick-ring" />
-            <line x1={sx(marker.x) - 11} y1={sy(marker.y)} x2={sx(marker.x) + 11} y2={sy(marker.y)} class="pick-cross" />
-            <line x1={sx(marker.x)} y1={sy(marker.y) - 11} x2={sx(marker.x)} y2={sy(marker.y) + 11} class="pick-cross" />
+            {/* Same radius as a palette dot (r=6), drawn as a dashed unfilled ring. */}
+            <circle cx={sx(marker.x)} cy={sy(marker.y)} r="6" class="pick-ring" />
           </g>
         )}
         {hover != null && points[hover] && (

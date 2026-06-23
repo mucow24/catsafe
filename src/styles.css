@@ -474,15 +474,18 @@ input[type="color"] {
 }
 
 /* --- scatter plots --- */
-.scatter-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+/* The cat plot is the primary view: full content width (matching a palette block),
+   so it renders large. Its square SVG scales to fill, so the card is roughly as tall
+   as it is wide. */
+.cat-plot {
   margin-top: 24px;
   margin-bottom: 28px;
-  /* The cat card is taller (it carries the metamer slider in its footer); stretch
-     the human card to match so the two cards share one height, for consistency. */
-  align-items: stretch;
+}
+/* The human plot is a secondary reference, moved below the palette. Kept near its
+   old half-width footprint so it doesn't balloon to full width at the page bottom. */
+.human-plot {
+  margin-top: 28px;
+  max-width: 460px;
 }
 /* Metamer-position slider, sitting in the cat plot card's footer. */
 .metamer-control {
@@ -801,10 +804,7 @@ input[type="color"] {
   fill: none;
   stroke: var(--accent);
   stroke-width: 1.5;
-}
-.pick-cross {
-  stroke: var(--accent);
-  stroke-width: 1;
+  stroke-dasharray: 3 2;
 }
 /* Keyboard focus ring on a plot dot (mouse clicks stay ring-free via :focus-visible). */
 .pick-target:focus {
@@ -860,18 +860,9 @@ input[type="color"] {
   color: var(--text);
   border-color: var(--line);
 }
-.metamer-head {
-  font-weight: 700;
-  font-size: 14px;
-  padding-right: 20px;
-}
-.metamer-loc {
-  margin-top: 2px;
-  font: 11px ui-monospace, Menlo, Consolas, monospace;
-  color: var(--muted);
-}
 .metamer-dist {
-  margin-top: 1px;
+  /* Clear the absolutely-positioned close button in the top-right corner. */
+  padding-right: 20px;
   font: 11px ui-monospace, Menlo, Consolas, monospace;
   color: var(--muted);
 }
@@ -882,40 +873,11 @@ input[type="color"] {
 :root.light .metamer-dist.below {
   color: #c62828;
 }
-.metamer-catrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 12px 0 10px;
-}
-.metamer-cat-sw {
-  width: 46px;
-  height: 46px;
-  flex: none;
-  border-radius: 8px;
-  border: 1px solid #0007;
-}
-.metamer-cat-txt {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.metamer-cat-txt code {
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: 12px;
-  color: var(--text);
-}
-.metamer-sub {
-  margin-bottom: 8px;
-  font-size: 11px;
-  color: var(--muted);
-}
 .metamer-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 6px;
+  margin-top: 10px;
 }
 .metamer-swatch {
   height: 34px;
@@ -1009,8 +971,8 @@ footer {
     grid-column: 1 / -1;
     flex-wrap: wrap;
   }
-  .scatter-pair {
-    grid-template-columns: 1fr;
+  .human-plot {
+    max-width: none;
   }
   /* On a narrow screen the floating card would cover the square plot and hide the
      crosshair it describes. Dock it to the bottom as a sheet instead — overrides

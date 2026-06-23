@@ -1064,6 +1064,15 @@ export function App() {
     setPick(null);
   };
 
+  // Click a metamer swatch in the popover to set the selected color to that exact
+  // human hex, then dismiss. Only fires when a color is selected (swatches are inert
+  // otherwise); guarded here too so a stale call can't write with nothing selected.
+  const setSelectedColorTo = (hex: string) => {
+    if (!selectedEntry) return;
+    onEdit(selectedEntry.id, hex);
+    setPick(null);
+  };
+
   return (
     <div class="app">
       <header>
@@ -1187,23 +1196,18 @@ export function App() {
         onSyncMetamer={setMetamerS}
       />
 
-      <section class="scatter-pair">
-        <Scatter
-          title="Human — OKLab chroma"
-          points={humanPts}
-          xLabel="green ↔ red"
-          yLabel="blue ↔ yellow"
-          unit="a/b"
-          onSelect={(i) => selectEntry(entries[i].id)}
-          selected={selIdx}
-          onBackgroundClick={() => setSelectedId(null)}
-        />
+      <section class="cat-plot">
         <Scatter
           title="Cat — RNL cone space (ΔS)"
           points={catPts}
           xLabel="yellow ↔ blue"
           yLabel="dark ↔ light"
           unit="ΔS"
+          // Square plot at ~2× the side length (size 500 vs the default 240). Rendered
+          // full palette-block width, this keeps the dots at their usual on-screen size
+          // while doubling the pixels per ΔS — finer separation, circular "too close"
+          // rings — without distorting aspect (equal-aspect square, so circles stay round).
+          size={500}
           gamutBoundary={catGamut}
           onPick={onPickCat}
           onSelect={(i) => selectEntry(entries[i].id)}
@@ -1285,6 +1289,19 @@ export function App() {
         {entries.length === 0 && <div class="empty">No colors yet — add a line.</div>}
       </section>
 
+      <section class="human-plot">
+        <Scatter
+          title="Human — OKLab chroma"
+          points={humanPts}
+          xLabel="green ↔ red"
+          yLabel="blue ↔ yellow"
+          unit="a/b"
+          onSelect={(i) => selectEntry(entries[i].id)}
+          selected={selIdx}
+          onBackgroundClick={() => setSelectedId(null)}
+        />
+      </section>
+
       {pick && (
         <MetamerPopup
           loc={pick.loc}
@@ -1294,6 +1311,7 @@ export function App() {
           belowMinSep={pickBelowMin}
           canMove={!!selectedEntry}
           onMoveHere={moveColorHere}
+          onPickColor={setSelectedColorTo}
           onClose={() => setPick(null)}
         />
       )}
