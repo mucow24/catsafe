@@ -1024,9 +1024,20 @@ export function App() {
   const pickBelowMin = !!(nearestCat && catCp && nearestCat.d < catCp.d);
 
   // Click a spot in the cat plot to inspect every sRGB color that lands there —
-  // the metamer set a cat perceives as one color (see catMetamers).
-  const onPickCat = (loc: XY, screen: { x: number; y: number }) =>
-    setPick({ loc, screen, metamers: catMetamers(loc) });
+  // the metamer set a cat perceives as one color (see catMetamers). An empty set
+  // means the spot is unmappable (the hatched out-of-gamut region, or too dark to
+  // resolve): no popover there — instead the click clears the selection (the cat
+  // plot has no separate background-click deselect). A mappable spot opens the
+  // popover and leaves the selection untouched.
+  const onPickCat = (loc: XY, screen: { x: number; y: number }) => {
+    const metamers = catMetamers(loc);
+    if (metamers.length === 0) {
+      setSelectedId(null);
+      setPick(null);
+      return;
+    }
+    setPick({ loc, screen, metamers });
+  };
 
   // Selecting a dot (from either plot) opens it in the selected-color bar and
   // dismisses any metamer popover, so the two interactions never overlap. Clicking
@@ -1036,6 +1047,22 @@ export function App() {
     setPick(null);
   };
   const selectedEntry = selIdx >= 0 ? entries[selIdx] : null;
+
+  // "Move color here": place the selected color at the popover's cat location while
+  // keeping its metamer position — its relative spot between this graph's greener
+  // (−d) and redder (+d) gamut ends. So a color sitting 50/50 greener/redder lands
+  // 50/50 greener/redder at the new spot, carrying over the cat-invisible red↔green
+  // character. The dest line always exists (the popover only opens in-gamut); a
+  // degenerate source line (e.g. near-black, no resolvable spread) falls back to 0.5.
+  const moveColorHere = () => {
+    if (!selectedEntry || !pick) return;
+    const destLine = metamerLine(pick.loc);
+    if (!destLine) return;
+    const srcLine = metamerLine(catSpace(selectedEntry.color));
+    const pos = srcLine ? metamerPosition(srcLine, selectedEntry.color) : 0.5;
+    onEdit(selectedEntry.id, metamerColorAt(destLine, pos));
+    setPick(null);
+  };
 
   return (
     <div class="app">
@@ -1181,7 +1208,6 @@ export function App() {
           onPick={onPickCat}
           onSelect={(i) => selectEntry(entries[i].id)}
           selected={selIdx}
-          onBackgroundClick={() => setSelectedId(null)}
           marker={pick?.loc ?? null}
           shade={catShadeCb}
           dim={shadeTooClose || shadeLowContrast ? catDimCb : undefined}
@@ -1266,6 +1292,8 @@ export function App() {
           metamers={pick.metamers}
           dist={nearestCat?.d ?? null}
           belowMinSep={pickBelowMin}
+          canMove={!!selectedEntry}
+          onMoveHere={moveColorHere}
           onClose={() => setPick(null)}
         />
       )}
