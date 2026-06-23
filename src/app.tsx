@@ -1203,11 +1203,11 @@ export function App() {
           xLabel="yellow ↔ blue"
           yLabel="dark ↔ light"
           unit="ΔS"
-          // Full palette-block width, with the colored region stretched horizontally.
-          // vbWidth sets the on-screen scale (dot/label size + card height — keep it so
-          // dots match a square plot); xStretch spreads the colored region wider.
-          vbWidth={500}
-          xStretch={2.5}
+          // Square plot at ~2× the side length (size 500 vs the default 240). Rendered
+          // full palette-block width, this keeps the dots at their usual on-screen size
+          // while doubling the pixels per ΔS — finer separation, circular "too close"
+          // rings — without distorting aspect (equal-aspect square, so circles stay round).
+          size={500}
           gamutBoundary={catGamut}
           onPick={onPickCat}
           onSelect={(i) => selectEntry(entries[i].id)}

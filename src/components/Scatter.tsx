@@ -16,40 +16,35 @@ export function closestPair(points: Pt[]): { i: number; j: number; d: number } |
   return best;
 }
 
-/** Plot geometry needed to walk a data-space grid: origin, plot rect, per-axis scale,
- *  centre. scaleX/scaleY differ when the plot is horizontally stretched. */
-type Geo = { ox: number; oy: number; plotW: number; plotH: number; scaleX: number; scaleY: number; cxD: number; cyD: number };
+/** Plot geometry needed to walk a data-space grid: origin, side, scale and centre. */
+type Geo = { ox: number; oy: number; plot: number; scale: number; cxD: number; cyD: number };
 
 /**
  * Rasterise a per-pixel field to a data-URL once, then draw it as one <image> that
- * scales with the SVG. A modest internal resolution is plenty — the fields here are
- * smooth and the vector gamut hatch redraws the crisp edge on top. `paint` gets each
- * pixel's data-space (x, y) and writes its RGBA bytes at `o`; leaving them 0 yields a
- * transparent pixel. Returns null when no canvas context is available.
+ * scales with the SVG. The raster is sized to the plot itself (~1 cell per viewBox
+ * unit), so a larger plot gets proportionally more pixels — a bigger plot is a crisper
+ * field, not a stretched one. The fields here are smooth and the vector gamut hatch
+ * redraws the crisp edge on top. `paint` gets each pixel's data-space (x, y) and writes
+ * its RGBA bytes at `o`; leaving them 0 yields a transparent pixel. Returns null when no
+ * canvas context is available.
  */
 function rasterField(geo: Geo, paint: (x: number, y: number, data: Uint8ClampedArray, o: number) => void): string | null {
-  const { ox, oy, plotW, plotH, scaleX, scaleY, cxD, cyD } = geo;
-  // Raster the plot rectangle at a fixed density (cells per viewBox unit), so a wider
-  // plot simply gets more pixels rather than being stretched soft. The field is smooth
-  // and the vector hatch/dots redraw the sharp edges on top, so a modest density reads
-  // clean; each cell is one cheap metamer solve.
-  const DENSITY = 1;
-  const RW = Math.max(1, Math.round(plotW * DENSITY));
-  const RH = Math.max(1, Math.round(plotH * DENSITY));
+  const { ox, oy, plot, scale, cxD, cyD } = geo;
+  const RES = Math.max(1, Math.round(plot));
   const cv = document.createElement('canvas');
-  cv.width = RW;
-  cv.height = RH;
+  cv.width = RES;
+  cv.height = RES;
   const ctx = cv.getContext('2d');
   if (!ctx) return null;
-  const img = ctx.createImageData(RW, RH);
+  const img = ctx.createImageData(RES, RES);
   const data = img.data;
-  for (let j = 0; j < RH; j++) {
-    const vy = oy + ((j + 0.5) / RH) * plotH;
-    const y = cyD - (vy - oy - plotH / 2) / scaleY;
-    for (let i = 0; i < RW; i++) {
-      const vx = ox + ((i + 0.5) / RW) * plotW;
-      const x = cxD + (vx - ox - plotW / 2) / scaleX;
-      paint(x, y, data, (j * RW + i) * 4);
+  for (let j = 0; j < RES; j++) {
+    const vy = oy + ((j + 0.5) / RES) * plot;
+    const y = cyD - (vy - oy - plot / 2) / scale;
+    for (let i = 0; i < RES; i++) {
+      const vx = ox + ((i + 0.5) / RES) * plot;
+      const x = cxD + (vx - ox - plot / 2) / scale;
+      paint(x, y, data, (j * RES + i) * 4);
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -78,8 +73,7 @@ export function Scatter({
   onSelect,
   selected,
   onBackgroundClick,
-  vbWidth,
-  xStretch,
+  size,
   children,
 }: {
   title: string;
@@ -122,18 +116,12 @@ export function Scatter({
    *  stopPropagation) — e.g. to clear the selection. On the cat plot it fires
    *  alongside onPick (which also inspects that spot). */
   onBackgroundClick?: () => void;
-  /** ViewBox WIDTH in the same units as the (fixed 240) height. Omit for a square
-   *  plot; pass a larger value to make the plot a wider rectangle that fills more
-   *  horizontal space WITHOUT changing the vertical scale or the dot/label size — at
-   *  `width:100%` a wider viewBox just maps to more on-screen pixels at the same
-   *  pixels-per-unit, so the plot shows more horizontal data area at the same zoom. */
-  vbWidth?: number;
-  /** Horizontal stretch factor (default 1). >1 widens the plotted/colored region by
-   *  scaling the x-axis above the y-axis: the colorful area spreads that many times
-   *  wider while the vertical scale, the height, and the (round) dot size stay put.
-   *  Pair with `vbWidth` so the stretched content fits the wider viewBox. NB: with a
-   *  stretch ≠ 1, on-screen horizontal distance no longer equals the data ΔS. */
-  xStretch?: number;
+  /** Square viewBox side, in viewBox units (default 240). The plot stays square and
+   *  equal-aspect; a larger value renders a bigger plot at `width:100%`. Combined with a
+   *  full-width container this gives more pixels per data unit — finer separation
+   *  between dots — while the dot/label sizes (fixed in viewBox units) render at the
+   *  same on-screen size, since pixels-per-unit is held constant by the wider container. */
+  size?: number;
   /** Extra content rendered in the card footer, below the min-separation stat
    *  (where note/hint would sit) — e.g. a plot-specific control. */
   children?: ComponentChildren;
@@ -145,17 +133,17 @@ export function Scatter({
   const hatchId = useId();
   const gamutClipId = useId();
   const dimMaskId = useId();
-  // S is the viewBox HEIGHT (fixed). W is the viewBox WIDTH — square by default, or a
-  // caller-supplied larger value for a wide plot. At `width:100%` a wider viewBox just
-  // maps to more on-screen pixels at the same pixels-per-unit, so the dots/labels keep
-  // their size and the card keeps its height; only the horizontal extent grows.
-  const S = 240;
-  const W = vbWidth && vbWidth > S ? vbWidth : S;
+  // Square viewBox of side S. A larger S renders a bigger plot at `width:100%` — more
+  // pixels per data unit (finer dot separation) — while the dot/label sizes, fixed in
+  // viewBox units, render the same on-screen because the wider container keeps
+  // pixels-per-unit constant. Equal aspect throughout, so circles stay circles.
+  const S = size && size > 0 ? size : 240;
   const M = { l: 24, r: 10, t: 10, b: 22 };
-  const plotW = W - M.l - M.r;
-  const plotH = S - M.t - M.b;
-  const ox = M.l;
-  const oy = M.t;
+  const boxW = S - M.l - M.r;
+  const boxH = S - M.t - M.b;
+  const plot = Math.min(boxW, boxH);
+  const ox = M.l + (boxW - plot) / 2;
+  const oy = M.t + (boxH - plot) / 2;
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const p of points) {
@@ -171,16 +159,9 @@ export function Scatter({
   const cyD = (minY + maxY) / 2;
   let half = (Math.max(maxX - minX, maxY - minY) / 2) * 1.15;
   if (half < 1e-9) half = 1;
-  // Vertical scale is driven by the SMALLER plot side (the height for a wide plot), so
-  // it never changes with the viewBox width: the dot/label size and the card height
-  // stay put. The horizontal scale is that base times `xStretch` (default 1), so a
-  // stretch of 2 spreads the colored region twice as wide while dots stay round. Data
-  // stays centred in the plot rectangle.
-  const stretch = xStretch && xStretch > 0 ? xStretch : 1;
-  const scaleY = Math.min(plotW, plotH) / (2 * half);
-  const scaleX = scaleY * stretch;
-  const sx = (x: number) => ox + plotW / 2 + (x - cxD) * scaleX;
-  const sy = (y: number) => oy + plotH / 2 - (y - cyD) * scaleY;
+  const scale = plot / (2 * half);
+  const sx = (x: number) => ox + plot / 2 + (x - cxD) * scale;
+  const sy = (y: number) => oy + plot / 2 - (y - cyD) * scale;
 
   // Geometry the shade/dim raster keys off, snapped to a coarse grid (~3 raster px
   // for the center, 2 sig figs for the zoom). Editing the selected color via the
@@ -194,8 +175,7 @@ export function Scatter({
   const gx = half / 32;
   const cellX = Math.round(cxD / gx);
   const cellY = Math.round(cyD / gx);
-  const rScaleY = Math.min(plotW, plotH) / (2 * Number(half.toPrecision(2)));
-  const rScaleX = rScaleY * stretch;
+  const rScale = plot / (2 * Number(half.toPrecision(2)));
   const rCxD = cellX * gx;
   const rCyD = cellY * gx;
 
@@ -204,7 +184,7 @@ export function Scatter({
   useEffect(() => {
     setShadeUrl(
       shade
-        ? rasterField({ ox, oy, plotW, plotH, scaleX: rScaleX, scaleY: rScaleY, cxD: rCxD, cyD: rCyD }, (x, y, data, o) => {
+        ? rasterField({ ox, oy, plot, scale: rScale, cxD: rCxD, cyD: rCyD }, (x, y, data, o) => {
             const rgb = shade({ x, y });
             if (rgb) {
               data[o] = rgb[0];
@@ -215,7 +195,7 @@ export function Scatter({
           })
         : null,
     );
-  }, [shade, ox, oy, plotW, plotH, rScaleX, rScaleY, cellX, cellY]);
+  }, [shade, ox, oy, plot, rScale, cellX, cellY]);
 
   // Raster the `dim` mask as opaque white where the spot is shaded out, transparent
   // elsewhere; an SVG <mask> then paints the themed wash through it. Re-renders when
@@ -223,14 +203,14 @@ export function Scatter({
   useEffect(() => {
     setDimUrl(
       dim
-        ? rasterField({ ox, oy, plotW, plotH, scaleX: rScaleX, scaleY: rScaleY, cxD: rCxD, cyD: rCyD }, (x, y, data, o) => {
+        ? rasterField({ ox, oy, plot, scale: rScale, cxD: rCxD, cyD: rCyD }, (x, y, data, o) => {
             if (dim({ x, y })) {
               data[o] = data[o + 1] = data[o + 2] = data[o + 3] = 255;
             }
           })
         : null,
     );
-  }, [dim, ox, oy, plotW, plotH, rScaleX, rScaleY, cellX, cellY]);
+  }, [dim, ox, oy, plot, rScale, cellX, cellY]);
 
   // Polygon tracing the in-gamut region (plot coords). Reused to clip the shade
   // layer to a crisp vector edge and to punch the out-of-gamut hatch.
@@ -242,8 +222,8 @@ export function Scatter({
   // Dots are interactive when either gesture is wired: selecting a dot, or picking
   // an empty spot. Drives focusability and the AT role on the svg + dot targets.
   const interactive = !!(onSelect || onPick);
-  const showVAxis = sx(0) >= ox && sx(0) <= ox + plotW;
-  const showHAxis = sy(0) >= oy && sy(0) <= oy + plotH;
+  const showVAxis = sx(0) >= ox && sx(0) <= ox + plot;
+  const showHAxis = sy(0) >= oy && sy(0) <= oy + plot;
   const cp = closestPair(points);
   const fmt = (d: number) => (d < 1 ? d.toFixed(3) : d.toFixed(1));
 
@@ -258,9 +238,9 @@ export function Scatter({
     pt.x = e.clientX;
     pt.y = e.clientY;
     const v = pt.matrixTransform(ctm.inverse());
-    if (v.x < ox || v.x > ox + plotW || v.y < oy || v.y > oy + plotH) return; // outside the plot box
-    const x = cxD + (v.x - ox - plotW / 2) / scaleX;
-    const y = cyD - (v.y - oy - plotH / 2) / scaleY;
+    if (v.x < ox || v.x > ox + plot || v.y < oy || v.y > oy + plot) return; // outside the plot box
+    const x = cxD + (v.x - ox - plot / 2) / scale;
+    const y = cyD - (v.y - oy - plot / 2) / scale;
     onPick({ x, y }, { x: e.clientX, y: e.clientY });
   };
 
@@ -286,7 +266,7 @@ export function Scatter({
     <div class="scatter">
       <div class="scatter-title">{title}</div>
       <svg
-        viewBox={`0 0 ${W} ${S}`}
+        viewBox={`0 0 ${S} ${S}`}
         class={`scatter-svg${onPick ? ' pickable' : ''}`}
         // A plain image when static; a labelled group when interactive, so the
         // focusable dot-buttons inside stay exposed to assistive tech (role="img"
@@ -297,7 +277,7 @@ export function Scatter({
       >
         <defs>
           <clipPath id={clipId}>
-            <rect x={ox} y={oy} width={plotW} height={plotH} rx="6" />
+            <rect x={ox} y={oy} width={plot} height={plot} rx="6" />
           </clipPath>
           {hasGamut && (
             // Diagonal hatch marking the unreachable region.
@@ -322,19 +302,19 @@ export function Scatter({
           {dimUrl && (
             // White-where-shaded raster as a luminance mask, so the wash <rect> below
             // shows only over low-contrast spots and its color stays CSS-themeable.
-            <mask id={dimMaskId} maskUnits="userSpaceOnUse" x={ox} y={oy} width={plotW} height={plotH}>
-              <image href={dimUrl} x={ox} y={oy} width={plotW} height={plotH} preserveAspectRatio="none" />
+            <mask id={dimMaskId} maskUnits="userSpaceOnUse" x={ox} y={oy} width={plot} height={plot}>
+              <image href={dimUrl} x={ox} y={oy} width={plot} height={plot} preserveAspectRatio="none" />
             </mask>
           )}
         </defs>
-        <rect x={ox} y={oy} width={plotW} height={plotH} class="scatter-bg" rx="6" />
+        <rect x={ox} y={oy} width={plot} height={plot} class="scatter-bg" rx="6" />
         {shadeUrl && (
           <image
             href={shadeUrl}
             x={ox}
             y={oy}
-            width={plotW}
-            height={plotH}
+            width={plot}
+            height={plot}
             preserveAspectRatio="none"
             clip-path={`url(#${hasGamut ? gamutClipId : clipId})`}
           />
@@ -343,8 +323,8 @@ export function Scatter({
           <rect
             x={ox}
             y={oy}
-            width={plotW}
-            height={plotH}
+            width={plot}
+            height={plot}
             class="low-contrast"
             mask={`url(#${dimMaskId})`}
             clip-path={`url(#${hasGamut ? gamutClipId : clipId})`}
@@ -358,11 +338,11 @@ export function Scatter({
             clip-path={`url(#${clipId})`}
             fill={`url(#${hatchId})`}
             fill-rule="evenodd"
-            d={`M${ox} ${oy}H${ox + plotW}V${oy + plotH}H${ox}Z` + gamutPath}
+            d={`M${ox} ${oy}H${ox + plot}V${oy + plot}H${ox}Z` + gamutPath}
           />
         )}
-        {showVAxis && <line x1={sx(0)} y1={oy} x2={sx(0)} y2={oy + plotH} class="axis" />}
-        {showHAxis && <line x1={ox} y1={sy(0)} x2={ox + plotW} y2={sy(0)} class="axis" />}
+        {showVAxis && <line x1={sx(0)} y1={oy} x2={sx(0)} y2={oy + plot} class="axis" />}
+        {showHAxis && <line x1={ox} y1={sy(0)} x2={ox + plot} y2={sy(0)} class="axis" />}
         {cp && (
           <line
             x1={sx(points[cp.i].x)}
@@ -454,20 +434,20 @@ export function Scatter({
           </g>
         )}
         {hover != null && points[hover] && (
-          <Tip p={points[hover]} x={sx(points[hover].x)} y={sy(points[hover].y)} bounds={W} />
+          <Tip p={points[hover]} x={sx(points[hover].x)} y={sy(points[hover].y)} bounds={S} />
         )}
         {xLabel && (
-          <text x={ox + plotW / 2} y={S - 5} class="axis-label" text-anchor="middle">
+          <text x={ox + plot / 2} y={S - 5} class="axis-label" text-anchor="middle">
             {xLabel}
           </text>
         )}
         {yLabel && (
           <text
             x={9}
-            y={oy + plotH / 2}
+            y={oy + plot / 2}
             class="axis-label"
             text-anchor="middle"
-            transform={`rotate(-90 9 ${oy + plotH / 2})`}
+            transform={`rotate(-90 9 ${oy + plot / 2})`}
           >
             {yLabel}
           </text>
