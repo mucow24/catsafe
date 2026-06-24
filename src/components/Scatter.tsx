@@ -74,6 +74,7 @@ export function Scatter({
   selected,
   onBackgroundClick,
   size,
+  statAbove,
   children,
 }: {
   title: string;
@@ -122,6 +123,9 @@ export function Scatter({
    *  between dots — while the dot/label sizes (fixed in viewBox units) render at the
    *  same on-screen size, since pixels-per-unit is held constant by the wider container. */
   size?: number;
+  /** Render the min-separation stat above the plot (between title and svg) instead of
+   *  below it. */
+  statAbove?: boolean;
   /** Extra content rendered in the card footer, below the min-separation stat
    *  (where note/hint would sit) — e.g. a plot-specific control. */
   children?: ComponentChildren;
@@ -226,6 +230,18 @@ export function Scatter({
   const showHAxis = sy(0) >= oy && sy(0) <= oy + plot;
   const cp = closestPair(points);
   const fmt = (d: number) => (d < 1 ? d.toFixed(3) : d.toFixed(1));
+  const stat = cp && (
+    <div class="scatter-stat">
+      <span class="stat-label">min separation</span>
+      <span class="stat-val">
+        {fmt(cp.d)}
+        {unit ? <span class="stat-unit"> {unit}</span> : null}
+      </span>
+      <span class="stat-lines">
+        closest pair: lines {points[cp.i].label} &amp; {points[cp.j].label}
+      </span>
+    </div>
+  );
 
   // Map a click to a data-space location, inverting sx/sy. getScreenCTM handles
   // CSS scaling and viewBox letterboxing, so the math stays in viewBox units.
@@ -265,6 +281,7 @@ export function Scatter({
   return (
     <div class="scatter">
       <div class="scatter-title">{title}</div>
+      {statAbove && stat}
       <svg
         viewBox={`0 0 ${S} ${S}`}
         class={`scatter-svg${onPick ? ' pickable' : ''}`}
@@ -453,18 +470,7 @@ export function Scatter({
           </text>
         )}
       </svg>
-      {cp && (
-        <div class="scatter-stat">
-          <span class="stat-label">min separation</span>
-          <span class="stat-val">
-            {fmt(cp.d)}
-            {unit ? <span class="stat-unit"> {unit}</span> : null}
-          </span>
-          <span class="stat-lines">
-            closest pair: lines {points[cp.i].label} &amp; {points[cp.j].label}
-          </span>
-        </div>
-      )}
+      {!statAbove && stat}
       {note && <div class="scatter-note">{note}</div>}
       {hint && <div class="scatter-hint">{hint}</div>}
       {children}
