@@ -1208,6 +1208,7 @@ export function App() {
           // while doubling the pixels per ΔS — finer separation, circular "too close"
           // rings — without distorting aspect (equal-aspect square, so circles stay round).
           size={500}
+          statAbove
           gamutBoundary={catGamut}
           onPick={onPickCat}
           onSelect={(i) => selectEntry(entries[i].id)}
